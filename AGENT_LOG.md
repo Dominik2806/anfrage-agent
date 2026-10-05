@@ -14,6 +14,6 @@ und welche Konsequenz daraus folgte. Neueste Einträge stehen oben.
 - **Korrektur:** Was wurde geändert?
 - **Konsequenz:** Neue Regel in CLAUDE.md, neuer Test, neuer Hook oder Bewertungsfall
 
-## Eintraege
+## Einträge
 
 _Noch keine Einträge._
