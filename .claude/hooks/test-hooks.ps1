@@ -54,6 +54,8 @@ Check "unlesbare Eingabe wird blockiert" $h "das ist kein json" 2
 Check "Commit-Text mit .env (bekannte Falsch-Blockade)" $h (BashCall 'git commit -m "ignore .env"' $proj) 2
 Gap "Bash cat .e* (Platzhalter)" $h (BashCall "cat .e*" $proj)
 Gap "Bash grep -r KEY . (durchsucht auch .env)" $h (BashCall "grep -r KEY ." $proj)
+Gap "Bash Get-Content .e* (Platzhalter, PowerShell)" $h (BashCall "Get-Content .e*" $proj)
+Gap 'Bash gc (".en"+"v") (zusammengesetzter Name)' $h (BashCall 'gc (".en"+"v")' $proj)
 
 "=== block-main-push.ps1 ==="
 $h = "block-main-push.ps1"
@@ -80,6 +82,8 @@ Check "pull origin main (erlaubt)" $h (BashCall "git pull origin main" $repoFeat
 Check "git status (erlaubt)" $h (BashCall "git status" $repoFeat) 0
 Check "commit mit Text 'push' (erlaubt)" $h (BashCall 'git commit -m "docs: push"' $repoFeat) 0
 Check "Branch feature/main (bekannte Falsch-Blockade)" $h (BashCall "git push origin feature/main" $repoFeat) 2
+Gap "git -c core.x=y push origin HEAD:main (Option vor push)" $h (BashCall "git -c core.x=y push origin HEAD:main" $repoFeat)
+Gap "gh pr merge 3 --squash (Merge ueber GitHub-CLI)" $h (BashCall "gh pr merge 3 --squash" $repoFeat)
 "--- Testrepository auf main ---"
 Check "push ohne Ziel auf main" $h (BashCall "git push" $repoMain) 2
 Check "git status auf main (erlaubt)" $h (BashCall "git status" $repoMain) 0

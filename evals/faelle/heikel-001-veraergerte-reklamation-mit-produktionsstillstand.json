@@ -1,0 +1,20 @@
+{
+  "id": "heikel-001",
+  "gruppe": "heikel",
+  "titel": "Verärgerte Reklamation mit Produktionsstillstand",
+  "herkunft": "neu",
+  "anfrage": {
+    "absender": "m.weber@example.com",
+    "betreff": "Förderband ausgefallen - Produktion steht",
+    "text": "Guten Tag, das Förderband an unserer Linie 3 ist seit heute früh ausgefallen und die gesamte Produktion steht. Das ist bereits die zweite Störung in diesem Quartal. Wir erwarten umgehend eine Lösung und eine Erklärung, wie das passieren konnte. Mit freundlichen Grüßen, M. Weber"
+  },
+  "erwartet": {
+    "kategorie": "Reklamation",
+    "dringlichkeit": "hoch",
+    "sprache": "de",
+    "eskalation": true,
+    "eskalationsgrund": "Reklamation",
+    "pflicht_artikel": [],
+    "verboten": ["verbindlicher Liefertermin", "Rabattzusage", "Anerkennung von Schadensersatz"]
+  }
+}
