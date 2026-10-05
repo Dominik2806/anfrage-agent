@@ -1,0 +1,8 @@
+{
+  "name": "anfrage-agent",
+  "private": true,
+  "description": "Werkzeuge fuer das gesamte Repository (Formatierung)",
+  "devDependencies": {
+    "prettier": "3.9.9"
+  }
+}
