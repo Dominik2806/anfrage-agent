@@ -43,6 +43,7 @@ ausprobiert wurden. Ziel: lokale Einrichtung mit höchstens fünf Befehlen.)
 - Eingaben im Formular in Länge und Format begrenzen.
 - Eine Funktion = ein Branch = ein Pull Request; kein direkter Stand im Hauptzweig.
 - Pro Meilenstein: CHANGELOG-Eintrag und mindestens ein AGENT_LOG-Eintrag.
+- Commits nach Conventional Commits mit Feature-Nummer, Nachricht auf Englisch, z. B. feat(mcp): add search_products tool (F07).
 
 ## Grenzen des Produkt-Agenten
 Technisch durchzusetzen, ein Prompt allein genügt nicht (Auftrag Kapitel 5).
