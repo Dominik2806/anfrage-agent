@@ -30,8 +30,11 @@ Laufzeit 8 Wochen, Meilensteine M0–M6, Features F01–F34 (Auftrag Kapitel 3).
 - Quellcode öffentlich auf GitHub, MIT-Lizenz
 
 ## Befehle
-(Noch leer: Es gibt noch keinen Code. Befehle erst eintragen, wenn sie existieren und
-ausprobiert wurden. Ziel: lokale Einrichtung mit höchstens fünf Befehlen.)
+- Hooks testen (erwartet 0 Fehler): `powershell.exe -NoProfile -ExecutionPolicy Bypass -File .claude\hooks\test-hooks.ps1`
+- TypeScript, JSON, CSS formatieren: `npx prettier --write <Datei>`
+- Python formatieren: `python -m ruff format <Datei>`
+- Weitere Befehle erst eintragen, wenn sie existieren und ausprobiert wurden.
+  Ziel: lokale Einrichtung mit höchstens fünf Befehlen.
 
 ## Konventionen
 - Sprache der Doku und Nutzertexte: Deutsch. Code-Bezeichner wie in Auftrag Kapitel 6.4 (z. B. `search_products`).
@@ -72,3 +75,8 @@ Durchsetzung:
   (Datum, Aufgabe, Verhalten, Fehler, Entdeckung, Korrektur, Konsequenz) und bei Bedarf eine Regel hier ergänzen.
 - Subagents, Skills und Hooks liegen in `.claude/` und werden mit dem Projekt versioniert.
 - Diese Datei laufend pflegen; Teilprojekte (`web/`, `agent/`, `mcp-server/`) erhalten eine eigene CLAUDE.md.
+- Git-Ablauf: Du darfst Branches anlegen, committen, pushen und Pull Requests öffnen.
+  Zeige vor jedem Commit den Diff. Nie selbst mergen, nie auf `main` pushen.
+- Hooks in `.claude/hooks/` schützen .env-Dateien und `main` und formatieren geänderte
+  Dateien. Umgehe sie nicht: Blockiert ein Hook einen Aufruf, melde das und suche keinen
+  anderen Weg. Schreibe „.env“ nicht in Commit-Nachrichten, der Hook blockiert sonst.
