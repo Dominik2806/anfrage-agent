@@ -74,6 +74,8 @@ Durchsetzung:
 - Fehlerhaften, unnötig komplizierten oder unpassenden Code von dir sofort in `AGENT_LOG.md` festhalten
   (Datum, Aufgabe, Verhalten, Fehler, Entdeckung, Korrektur, Konsequenz) und bei Bedarf eine Regel hier ergänzen.
 - Subagents, Skills und Hooks liegen in `.claude/` und werden mit dem Projekt versioniert.
+- Vor jedem Pull Request den Subagent `code-reviewer` einsetzen; bei Änderungen an Leitplanken,
+  Datenservice, Eingaben oder Konfiguration zusätzlich `security-reviewer`. Diff oder Dateiliste übergeben.
 - Diese Datei laufend pflegen; Teilprojekte (`web/`, `agent/`, `mcp-server/`) erhalten eine eigene CLAUDE.md.
 - Git-Ablauf: Du darfst Branches anlegen, committen, pushen und Pull Requests öffnen.
   Zeige vor jedem Commit den Diff. Nie selbst mergen, nie auf `main` pushen.

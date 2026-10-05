@@ -16,4 +16,13 @@ und welche Konsequenz daraus folgte. Neueste Einträge stehen oben.
 
 ## Einträge
 
-_Noch keine Einträge._
+### 2026-10-05 · F03 · Falsche Aussage über den Zustand des Repositorys
+- **Aufgabe:** Plan für F03 (Subagents und Skills) entwerfen.
+- **Verhalten des Agenten:** Im Plan stand, evals/ existiere noch nicht.
+- **Fehler:** evals/ existiert seit F01 (mit README.md). Der Plan beschrieb den Zustand
+  falsch, ohne ihn zu prüfen.
+- **Entdeckung:** Fehler in einem Gespräch mit Claude beim Prüfen des Plans bemerkt, und nicht selbst im Terminal
+- **Korrektur:** Plan wurde korrigiert, Claude sollte vor Aussagen über das Repository
+  das Verzeichnis prüfen.
+- **Konsequenz:** Keine neue Regel nötig. Der Fehler fiel im Plan Mode auf, bevor eine
+  Datei geschrieben wurde.
