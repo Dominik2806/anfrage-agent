@@ -12,7 +12,9 @@ Eine ADR (Architekturentscheidung) begründet eine wesentliche Entscheidung kurz
 1. Kläre mit dem Nutzer, welche Entscheidung dokumentiert wird. Fehlen Kontext, Alternativen oder Gründe, frage nach.
    Erfinde keine Gründe oder Alternativen; stütze dich nur auf `docs/AUFTRAG.md`, den Code und das Gespräch.
 2. Liste `docs/adr/` auf und bestimme die nächste freie vierstellige Nummer (`0001`, `0002`, …). Die `README.md` zählt nicht.
-3. Lege `docs/adr/NNNN-kurztitel-in-kebab-case.md` an. Schreibe nur in `docs/adr/`.
+3. Lege `docs/adr/NNNN-kurztitel-in-kebab-case.md` an. Der `kurztitel` besteht nur aus `[a-z0-9-]`
+   (Kleinbuchstaben, Ziffern, Bindestrich), ohne Punkte und ohne Pfadtrenner (`/`, `\`); Umlaute werden umschrieben
+   (ä → ae, ö → oe, ü → ue, ß → ss). Schreibe nur in `docs/adr/`.
 4. Verwende diese Vorlage:
 
 ```markdown

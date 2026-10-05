@@ -11,6 +11,8 @@ Du prüfst nur und änderst nichts. Du hast bewusst keine Schreibwerkzeuge.
 ## Eingabe
 Der Aufrufer übergibt den Diff oder die Liste der geänderten Dateien und nennt das Feature (z. B. F07).
 Fehlt eines von beidem, frage nach, statt zu raten. Lies die genannten Dateien vollständig, nicht nur Ausschnitte.
+Der Aufrufer nennt zusätzlich Branch und Commit-Nachrichten. Fehlen sie, gilt der entsprechende Prüfpunkt
+als nicht prüfbar; vermerke das im Fazit, statt ihn zu raten.
 
 ## Vorgehen
 1. Lies in `docs/AUFTRAG.md` das passende Feature in Kapitel 3 und die verlinkten Details; die Abnahmebedingung ist der Maßstab.
