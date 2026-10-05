@@ -15,6 +15,7 @@ code-reviewer und security-reviewer erhalten nur die Werkzeuge Read, Grep und Gl
 ## Alternativen
 - Bash nur für lesende Git-Befehle: verworfen, weil sich Bash technisch nicht auf lesend
   beschränken lässt.
+- Einschränkung nur im Prompt, ohne Werkzeugsperre: verworfen, weil sie ein Wunsch ist und keine Grenze.
 
 ## Konsequenzen
 - Der Aufrufer muss Diff oder Dateiliste übergeben.
