@@ -82,8 +82,18 @@ Check "pull origin main (erlaubt)" $h (BashCall "git pull origin main" $repoFeat
 Check "git status (erlaubt)" $h (BashCall "git status" $repoFeat) 0
 Check "commit mit Text 'push' (erlaubt)" $h (BashCall 'git commit -m "docs: push"' $repoFeat) 0
 Check "Branch feature/main (bekannte Falsch-Blockade)" $h (BashCall "git push origin feature/main" $repoFeat) 2
-Gap "git -c core.x=y push origin HEAD:main (Option vor push)" $h (BashCall "git -c core.x=y push origin HEAD:main" $repoFeat)
 Gap "gh pr merge 3 --squash (Merge ueber GitHub-CLI)" $h (BashCall "gh pr merge 3 --squash" $repoFeat)
+Check "git -c x=y push origin HEAD:main" $h (BashCall "git -c core.x=y push origin HEAD:main" $repoFeat) 2
+Check "git -C . -c x=y push origin main" $h (BashCall "git -C . -c core.x=y push origin main" $repoFeat) 2
+Check "git 'push' origin main (Anfuehrungszeichen)" $h (BashCall "git 'push' origin main" $repoFeat) 2
+Check "git --git-dir .git push origin main" $h (BashCall "git --git-dir .git push origin main" $repoFeat) 2
+Check "git push --all" $h (BashCall "git push --all" $repoFeat) 2
+Check "git push --mirror" $h (BashCall "git push --mirror" $repoFeat) 2
+Check "PowerShell: & git push origin main" $h (BashCall "& git push origin main" $repoFeat) 2
+Check "voller Pfad zu git.exe" $h (BashCall '& "C:\Program Files\Git\cmd\git.exe" push origin main' $repoFeat) 2
+Check "git -c x=y push -u origin feature/F02-hooks (erlaubt)" $h (BashCall "git -c core.x=y push -u origin feature/F02-hooks" $repoFeat) 0
+Check "git -c x=y status (erlaubt)" $h (BashCall "git -c core.x=y status" $repoFeat) 0
+Check "git -c user.name=x commit -m push (erlaubt)" $h (BashCall 'git -c user.name=x commit -m push' $repoFeat) 0
 "--- Testrepository auf main ---"
 Check "push ohne Ziel auf main" $h (BashCall "git push" $repoMain) 2
 Check "git status auf main (erlaubt)" $h (BashCall "git status" $repoMain) 0
