@@ -79,6 +79,8 @@ Durchsetzung:
 - Diese Datei laufend pflegen; Teilprojekte (`web/`, `agent/`, `mcp-server/`) erhalten eine eigene CLAUDE.md.
 - Git-Ablauf: Du darfst Branches anlegen, committen, pushen und Pull Requests öffnen.
   Zeige vor jedem Commit den Diff. Nie selbst mergen, nie auf `main` pushen.
-- Hooks in `.claude/hooks/` schützen .env-Dateien und `main` und formatieren geänderte
-  Dateien. Umgehe sie nicht: Blockiert ein Hook einen Aufruf, melde das und suche keinen
-  anderen Weg. Schreibe „.env“ nicht in Commit-Nachrichten, der Hook blockiert sonst.
+- Hooks (`.claude/hooks/`) und `.claude/settings.json` ändert nur der Mensch. Sie sind für dich
+  technisch gesperrt. Blockiert ein Hook einen Aufruf, melde das und suche keinen anderen Weg.
+  Schreibe „.env“ nicht in Commit-Nachrichten, der Hook blockiert sonst.
+- Der echte API-Schlüssel liegt außerhalb des Projektordners. Lege nie eine `.env` im Projekt an.
+- Gib dem code-reviewer bei geänderten Dateien den Diff mit, sonst sieht er die Änderung nicht.
