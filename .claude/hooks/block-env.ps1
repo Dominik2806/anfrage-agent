@@ -14,7 +14,7 @@ $tool = [string]$data.tool_name
 $msg = "Blockiert: Zugriff auf .env-Dateien ist in diesem Projekt nicht erlaubt. Nutze stattdessen .env.example."
 
 # Felder mit Pfaden und Befehlen. Bei Glob ist pattern ein Dateimuster, bei Grep ein Suchtext (nicht geprueft).
-$names = @("file_path", "path", "command", "glob")
+$names = @("file_path", "notebook_path", "path", "command", "glob")
 if ($tool -eq "Glob") { $names += "pattern" }
 $values = @()
 foreach ($name in $names) {

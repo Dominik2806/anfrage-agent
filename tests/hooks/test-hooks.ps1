@@ -91,6 +91,10 @@ Check "Schluessel ausserhalb des Projekts (erlaubt)" $h (BashCall 'node --env-fi
 Check "Bash git add . (erlaubt)" $h (BashCall "git add ." $proj) 0
 Check "Bash ls * (erlaubt, einzelner Stern)" $h (BashCall "ls *" $proj) 0
 
+Check "NotebookEdit auf .env" $h (@{ tool_name = "NotebookEdit"; tool_input = @{ notebook_path = "C:\proj\.env" } }) 2
+Check "MultiEdit auf .env" $h (@{ tool_name = "MultiEdit"; tool_input = @{ file_path = "C:\proj\.env" } }) 2
+Check "NotebookEdit auf analyse.ipynb (erlaubt)" $h (@{ tool_name = "NotebookEdit"; tool_input = @{ notebook_path = "C:\proj\analyse.ipynb" } }) 0
+
 "=== block-main-push.ps1 ==="
 $h = "block-main-push.ps1"
 $tmp = Join-Path $env:TEMP ("hooktest-" + [guid]::NewGuid().ToString("N").Substring(0, 8))
