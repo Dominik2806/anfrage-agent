@@ -18,47 +18,39 @@ $msg = "Blockiert: Pushes auf main/master sind nicht erlaubt. Arbeite auf einem 
 $cwd = if ($data.cwd) { [string]$data.cwd } else { $env:CLAUDE_PROJECT_DIR }
 if (-not $cwd) { $cwd = (Get-Location).Path }
 
-foreach ($inv in @(Get-Invocations $cmd)) {
+function Stop-Blocked {
+  [Console]::Error.WriteLine($msg)
+  exit 2
+}
+
+$invocations = @(Get-Invocations $cmd)
+foreach ($inv in $invocations) {
+  if ($inv.Program.StartsWith('<')) { Stop-Blocked }
+}
+
+$pushes = @()
+$switchedToMain = $false
+foreach ($inv in $invocations) {
   if ($inv.Program -ne 'git') { continue }
-  $tokens = @($inv.Arguments)
-  $repo = $cwd
-
-  # Globale git-Optionen samt Wert ueberspringen (-c name=wert, -C Pfad, ...)
-  $i = 0
-  while ($i -lt $tokens.Count -and $tokens[$i].StartsWith('-')) {
-    $opt = $tokens[$i]
-    if ($opt -ceq '-C' -and ($i + 1) -lt $tokens.Count) {
-      $p = $tokens[$i + 1]
-      try {
-        if ([System.IO.Path]::IsPathRooted($p)) { $repo = $p } else { $repo = Join-Path $repo $p }
-      } catch { }
-      $i += 2
-      continue
-    }
-    if ($opt -cin @('-c', '--git-dir', '--work-tree', '--namespace', '--config-env') -and ($i + 1) -lt $tokens.Count) {
-      $i += 2
-      continue
-    }
-    $i++
+  $sub = Get-GitSub @($inv.Arguments) $cwd
+  if (-not $sub) { continue }
+  foreach ($c in $sub.Config) { if ($c -match '^alias\.') { Stop-Blocked } }
+  if (@('switch', 'checkout') -contains $sub.Name) {
+    foreach ($a in $sub.Args) { if ($a -match '^(main|master)$') { $switchedToMain = $true } }
   }
-  if ($i -ge $tokens.Count) { continue }
-  if ($tokens[$i].ToLower() -ne 'push') { continue }
+  if ($sub.Name -eq 'push') { $pushes += $sub }
+}
 
-  # Ziel pruefen: main, master, HEAD:main, +main, refs/heads/main, --all, --mirror
-  $pushArgs = @($tokens | Select-Object -Skip ($i + 1))
-  foreach ($a in $pushArgs) {
-    if ($a -match '^(--all|--mirror)$' -or $a -match '(^|[:/+])(main|master)$') {
-      [Console]::Error.WriteLine($msg)
-      exit 2
-    }
+foreach ($sub in $pushes) {
+  # Ziel pruefen: main, master, HEAD:main, +main, refs/heads/main, --all, --mirror, Platzhalter, Variablen
+  foreach ($a in @($sub.Args)) {
+    if ($a -match '^--(al|all|mir|mirr|mirro|mirror)$' -or $a -match '(^|[:/+,])(main|master)$' -or $a -match '[\\$*]') { Stop-Blocked }
   }
-
-  # Ohne Ziel gilt der aktuelle Branch
+  # Im selben Befehl auf main gewechselt: der Branch zur Hook-Zeit ist nicht der Branch beim Push
+  if ($switchedToMain) { Stop-Blocked }
+  # Der aktuelle Branch gilt fuer jeden Push; ist er unklar, wird blockiert
   $branch = ''
-  try { $branch = (& git -C $repo branch --show-current 2>$null) } catch { $branch = '' }
-  if ($branch -match '^(main|master)$') {
-    [Console]::Error.WriteLine($msg)
-    exit 2
-  }
+  try { $branch = (& git -C $sub.Repo branch --show-current 2>$null) } catch { $branch = '' }
+  if ([string]::IsNullOrWhiteSpace($branch) -or ($branch -match '^(main|master)$')) { Stop-Blocked }
 }
 exit 0

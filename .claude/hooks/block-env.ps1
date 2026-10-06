@@ -1,6 +1,8 @@
 # Blockiert Zugriffe auf .env-Dateien (PreToolUse-Hook).
 # Exit 2 = Werkzeugaufruf blockieren, Exit 0 = erlauben.
 
+. (Join-Path $PSScriptRoot '_common.ps1')
+
 $raw = [Console]::In.ReadToEnd()
 try {
   $data = $raw | ConvertFrom-Json
@@ -13,30 +15,44 @@ $ti = $data.tool_input
 $tool = [string]$data.tool_name
 $msg = "Blockiert: Zugriff auf .env-Dateien ist in diesem Projekt nicht erlaubt. Nutze stattdessen .env.example."
 
-# Felder mit Pfaden und Befehlen. Bei Glob ist pattern ein Dateimuster, bei Grep ein Suchtext (nicht geprueft).
-$names = @("file_path", "notebook_path", "path", "command", "glob")
-if ($tool -eq "Glob") { $names += "pattern" }
-$values = @()
-foreach ($name in $names) {
-  if ($ti -and $ti.$name) { $values += [string]$ti.$name }
+function Stop-Blocked {
+  [Console]::Error.WriteLine($msg)
+  exit 2
 }
 
-$candidates = @('.env', '.env.local', '.env.production', '.env.development', '.env.test', '.env.staging')
+# Felder mit Pfaden. Bei Glob ist pattern ein Dateimuster, bei Grep ein Suchtext (nicht geprueft).
+$names = @("file_path", "notebook_path", "path", "glob")
+if ($tool -eq "Glob") { $names += "pattern" }
 
-function Test-EnvName([string]$word) {
+$candidates = @('.env', '.env.local', '.env.production', '.env.development', '.env.test', '.env.staging',
+  '.env.dev', '.env.prod', '.env.ci', '.env.qa', '.env.stage', '.env.docker', '.env.default')
+
+# Programme, bei denen ein reiner Platzhalter (*, *.*, ????) nur auflistet oder nichts liest
+$listing = @('ls', 'dir', 'gci', 'get-childitem', 'tree', 'echo', 'write-output', 'write-host', 'git', 'mkdir', 'md',
+  'cd', 'chdir', 'set-location', 'sl', 'pwd', 'test-path')
+
+function Test-EnvName([string]$word, [bool]$isListing) {
   # Nur den letzten Pfadteil betrachten
   $name = $word -replace '\\', '/'
   $name = $name.Substring($name.LastIndexOf('/') + 1)
-  # Windows ignoriert Punkte und Leerzeichen am Ende; alternative Datenstroeme (::$DATA) entfernen
+  # Parameter mit Doppelpunkt: -Path:.env
+  if ($name -match '^-[A-Za-z]+:(.+)$') {
+    $name = $Matches[1]
+    $name = $name.Substring($name.LastIndexOf('/') + 1)
+  }
+  # Laufwerk ohne Pfad (C:.env), alternative Datenstroeme (::$DATA), Punkte und Leerzeichen am Ende
+  $name = $name -replace '^[A-Za-z]:(?!:)', ''
   $name = ($name -replace ':.*$', '').TrimEnd('.', ' ').ToLower()
   if ($name.Length -eq 0) { return $false }
 
   # .env und alles, was mit .env. beginnt; nur .env.example ist erlaubt
   if (($name -match '^\.env(\..+)?$') -and ($name -ne '.env.example')) { return $true }
+  # Windows-Kurzname (8.3)
+  if ($name -match '^env~\d') { return $true }
 
   # Platzhalter: blockieren, wenn er eine .env-Datei treffen kann
   if ($name -match '[*?\[]') {
-    if ((-not $name.StartsWith('.')) -and ($name -notmatch '[env]')) { return $false }
+    if ($isListing -and ($name -match '^[*?.]+$')) { return $false }
     try {
       foreach ($c in $candidates) { if ($c -like $name) { return $true } }
     } catch { return $true }
@@ -44,13 +60,38 @@ function Test-EnvName([string]$word) {
   return $false
 }
 
-foreach ($v in $values) {
-  # Anfuehrungszeichen, Gravis, ^ und + entfernen, damit zusammengesetzte Namen auffallen
-  $clean = $v -replace '["''`^+]', ''
-  foreach ($w in ($clean -split '[\s=,;|&(){}<>]+')) {
-    if ($w -and (Test-EnvName $w)) {
-      [Console]::Error.WriteLine($msg)
-      exit 2
+function Test-Words([string]$text, [bool]$isListing) {
+  foreach ($w in ($text -split '[\s=,;|&(){}<>]+')) {
+    if ($w -and (Test-EnvName $w $isListing)) { return $true }
+  }
+  return $false
+}
+
+# Anfuehrungszeichen, Gravis, ^ und + entfernen, damit zusammengesetzte Namen auffallen.
+# Die zweite Fassung entfernt auch Backslashes (Bash-Escapes wie .en\v).
+function Get-Variants([string]$v) {
+  $c1 = $v -replace '["''`^+]', ''
+  $c2 = $c1 -replace '\\', ''
+  return @($c1, $c2)
+}
+
+foreach ($name in $names) {
+  if ($ti -and $ti.$name) {
+    foreach ($variant in (Get-Variants ([string]$ti.$name))) {
+      if (Test-Words $variant $false) { Stop-Blocked }
+    }
+  }
+}
+
+if ($ti -and $ti.command) {
+  foreach ($variant in (Get-Variants ([string]$ti.command))) {
+    foreach ($inv in @(Get-Invocations $variant)) {
+      if ($inv.Program.StartsWith('<')) { Stop-Blocked }
+      $isListing = $listing -contains $inv.Program
+      if (Test-Words $inv.Program $true) { Stop-Blocked }
+      foreach ($arg in @($inv.Arguments)) {
+        if (Test-Words ([string]$arg) $isListing) { Stop-Blocked }
+      }
     }
   }
 }
