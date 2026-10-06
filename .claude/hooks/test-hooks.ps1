@@ -52,10 +52,26 @@ Check "Grep mit glob .env*" $h @{ tool_name = "Grep"; tool_input = @{ pattern = 
 Check "Write mit Text '.env' im Inhalt (erlaubt)" $h @{ tool_name = "Write"; tool_input = @{ file_path = "docs\x.md"; content = "Siehe .env" } } 0
 Check "unlesbare Eingabe wird blockiert" $h "das ist kein json" 2
 Check "Commit-Text mit .env (bekannte Falsch-Blockade)" $h (BashCall 'git commit -m "ignore .env"' $proj) 2
-Gap "Bash cat .e* (Platzhalter)" $h (BashCall "cat .e*" $proj)
 Gap "Bash grep -r KEY . (durchsucht auch .env)" $h (BashCall "grep -r KEY ." $proj)
-Gap "Bash Get-Content .e* (Platzhalter, PowerShell)" $h (BashCall "Get-Content .e*" $proj)
-Gap 'Bash gc (".en"+"v") (zusammengesetzter Name)' $h (BashCall 'gc (".en"+"v")' $proj)
+
+$py = "python -c " + [char]34 + "open('.'+'env')" + [char]34
+Check "Bash cat .e* (Platzhalter)" $h (BashCall "cat .e*" $proj) 2
+Check "Bash cat .en? (Platzhalter)" $h (BashCall "cat .en?" $proj) 2
+Check "Bash cat .[e]nv (Zeichenklasse)" $h (BashCall "cat .[e]nv" $proj) 2
+Check "Bash cat .* (alle Punktdateien)" $h (BashCall "cat .*" $proj) 2
+Check "Bash Get-Content .e* (PowerShell)" $h (BashCall "Get-Content .e*" $proj) 2
+Check "Bash Get-Content ./.e* (mit Pfad)" $h (BashCall "Get-Content ./.e*" $proj) 2
+Check 'Bash gc (".en"+"v") (zusammengesetzter Name)' $h (BashCall 'gc (".en"+"v")' $proj) 2
+Check "Bash cat '.e'nv (Verkettung in Bash)" $h (BashCall "cat '.e'nv" $proj) 2
+Check 'Bash type .e""nv (Anfuehrungszeichen im Namen)' $h (BashCall 'type .e""nv' $proj) 2
+Check "python -c open('.'+'env')" $h (BashCall $py $proj) 2
+Check "Bash cat README.md (erlaubt)" $h (BashCall "cat README.md" $proj) 0
+Check "Bash git log --oneline -3 (erlaubt)" $h (BashCall "git log --oneline -3" $proj) 0
+Check "Bash grep -E a.*b datei (erlaubt)" $h (BashCall 'grep -E "a.*b" datei.txt' $proj) 0
+Check "Bash cat .eslintrc.json (erlaubt)" $h (BashCall "cat .eslintrc.json" $proj) 0
+Check "Bash ls .github (erlaubt)" $h (BashCall "ls .github" $proj) 0
+Check "Commit-Text mit .* (bekannte Falsch-Blockade)" $h (BashCall 'git commit -m "fix .* handling"' $proj) 2
+Gap 'Bash Get-ChildItem -Force | % {gc $_} (liest alle Dateien)' $h (BashCall 'Get-ChildItem -Force | % {gc $_}' $proj)
 
 "=== block-main-push.ps1 ==="
 $h = "block-main-push.ps1"
@@ -82,7 +98,6 @@ Check "pull origin main (erlaubt)" $h (BashCall "git pull origin main" $repoFeat
 Check "git status (erlaubt)" $h (BashCall "git status" $repoFeat) 0
 Check "commit mit Text 'push' (erlaubt)" $h (BashCall 'git commit -m "docs: push"' $repoFeat) 0
 Check "Branch feature/main (bekannte Falsch-Blockade)" $h (BashCall "git push origin feature/main" $repoFeat) 2
-Gap "gh pr merge 3 --squash (Merge ueber GitHub-CLI)" $h (BashCall "gh pr merge 3 --squash" $repoFeat)
 Check "git -c x=y push origin HEAD:main" $h (BashCall "git -c core.x=y push origin HEAD:main" $repoFeat) 2
 Check "git -C . -c x=y push origin main" $h (BashCall "git -C . -c core.x=y push origin main" $repoFeat) 2
 Check "git 'push' origin main (Anfuehrungszeichen)" $h (BashCall "git 'push' origin main" $repoFeat) 2
@@ -98,6 +113,35 @@ Check "git -c user.name=x commit -m push (erlaubt)" $h (BashCall 'git -c user.na
 Check "push ohne Ziel auf main" $h (BashCall "git push" $repoMain) 2
 Check "git status auf main (erlaubt)" $h (BashCall "git status" $repoMain) 0
 Check "unlesbare Eingabe wird blockiert" $h "das ist kein json" 2
+
+"=== block-gh-merge.ps1 ==="
+$h = "block-gh-merge.ps1"
+Check "gh pr merge 3 --squash" $h (BashCall "gh pr merge 3 --squash" $proj) 2
+Check "gh pr merge 3 --auto" $h (BashCall "gh pr merge 3 --auto" $proj) 2
+Check "gh pr merge ohne Nummer" $h (BashCall "gh pr merge" $proj) 2
+Check "gh pr -R owner/repo merge 3" $h (BashCall "gh pr -R owner/repo merge 3" $proj) 2
+Check "Umgebungsvariable vor gh pr merge" $h (BashCall "GH_REPO=o/r gh pr merge 3" $proj) 2
+Check "PowerShell: & gh pr merge 3" $h (BashCall "& gh pr merge 3" $proj) 2
+Check "voller Pfad zu gh.exe" $h (BashCall '& "C:\Program Files\GitHub CLI\gh.exe" pr merge 3' $proj) 2
+Check "git status && gh pr merge 3" $h (BashCall "git status && gh pr merge 3" $proj) 2
+Check "gh api -X PUT .../merge" $h (BashCall "gh api -X PUT repos/o/r/pulls/3/merge" $proj) 2
+Check "gh api ... --method PUT" $h (BashCall "gh api repos/o/r/pulls/3/merge --method PUT" $proj) 2
+Check "gh api graphql mit mergePullRequest" $h (BashCall "gh api graphql -f query=mutation{mergePullRequest}" $proj) 2
+Check "gh api -X DELETE rulesets" $h (BashCall "gh api -X DELETE repos/o/r/rulesets/1" $proj) 2
+Check "gh api --method=PATCH" $h (BashCall "gh api --method=PATCH repos/o/r" $proj) 2
+Check "gh alias set" $h (BashCall "gh alias set m 'pr merge'" $proj) 2
+Check "unlesbare Eingabe wird blockiert" $h "das ist kein json" 2
+Check "gh pr create --fill (erlaubt)" $h (BashCall "gh pr create --fill" $proj) 0
+Check "gh pr create mit Titel 'merge fix' (erlaubt)" $h (BashCall 'gh pr create --title "merge fix" --body-file x.md' $proj) 0
+Check "gh pr view 3 (erlaubt)" $h (BashCall "gh pr view 3" $proj) 0
+Check "gh pr diff (erlaubt)" $h (BashCall "gh pr diff" $proj) 0
+Check "gh api GET (erlaubt)" $h (BashCall "gh api repos/o/r/pulls/3" $proj) 0
+Check "gh api GET mit --jq (erlaubt)" $h (BashCall "gh api repos/o/r/pulls/3 --jq .title" $proj) 0
+Check "gh api -X GET mit -f (erlaubt)" $h (BashCall "gh api -X GET repos/o/r/pulls -f state=open" $proj) 0
+Check "gh issue create (erlaubt)" $h (BashCall "gh issue create --title x --body-file y.md" $proj) 0
+Check "gh auth status (erlaubt)" $h (BashCall "gh auth status" $proj) 0
+Check "echo gh pr merge (erlaubt, nur Text)" $h (BashCall "echo gh pr merge" $proj) 0
+Check "git commit mit Text 'gh pr merge' (erlaubt)" $h (BashCall 'git commit -m "gh pr merge"' $proj) 0
 
 "=== format-file.ps1 ==="
 function CheckFormat($label, $file, $content, $expectedExit, $expectedContent) {
