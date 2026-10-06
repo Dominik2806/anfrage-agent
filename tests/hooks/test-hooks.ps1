@@ -143,6 +143,35 @@ Check "gh auth status (erlaubt)" $h (BashCall "gh auth status" $proj) 0
 Check "echo gh pr merge (erlaubt, nur Text)" $h (BashCall "echo gh pr merge" $proj) 0
 Check "git commit mit Text 'gh pr merge' (erlaubt)" $h (BashCall 'git commit -m "gh pr merge"' $proj) 0
 
+"=== block-guard-paths.ps1 ==="
+$h = "block-guard-paths.ps1"
+$pyw = "python -c " + [char]34 + "open('.claude/hooks/block-env.ps1','w')" + [char]34
+Check "Set-Content auf Hook-Skript" $h (BashCall "Set-Content .claude/hooks/block-env.ps1 'exit 0'" $proj) 2
+Check "echo exit 0 > Hook-Skript" $h (BashCall "echo exit 0 > .claude/hooks/block-env.ps1" $proj) 2
+Check "Set-Content mit Backslashes" $h (BashCall "Set-Content .claude\hooks\block-env.ps1 x" $proj) 2
+Check "Add-Content auf settings.json" $h (BashCall "Add-Content .claude/settings.json x" $proj) 2
+Check "Remove-Item settings.json" $h (BashCall "Remove-Item -Force .claude\settings.json" $proj) 2
+Check "rm Hook-Skript" $h (BashCall "rm .claude/hooks/block-env.ps1" $proj) 2
+Check "git checkout auf Hook-Skript" $h (BashCall "git checkout -- .claude/hooks/block-env.ps1" $proj) 2
+Check "sed -i auf Hook-Skript" $h (BashCall "sed -i s/2/0/ .claude/hooks/block-main-push.ps1" $proj) 2
+Check "python open mit w" $h (BashCall $pyw $proj) 2
+Check "WriteAllText auf settings.json" $h (BashCall "[IO.File]::WriteAllText('.claude/settings.json','{}')" $proj) 2
+Check "Set-Content settings.local.json" $h (BashCall "Set-Content .claude/settings.local.json x" $proj) 2
+Check "cd in Hook-Ordner und Umleitung" $h (BashCall "cd .claude/hooks && echo x > a.ps1" $proj) 2
+Check "zusammengesetzter Pfad" $h (BashCall 'Set-Content (".claude/ho"+"oks/block-env.ps1") x' $proj) 2
+Check "unlesbare Eingabe wird blockiert" $h "das ist kein json" 2
+Check "cat Hook-Skript (erlaubt)" $h (BashCall "cat .claude/hooks/block-env.ps1" $proj) 0
+Check "Get-Content settings.json (erlaubt)" $h (BashCall "Get-Content .claude/settings.json" $proj) 0
+Check "ls Hook-Ordner (erlaubt)" $h (BashCall "ls .claude/hooks" $proj) 0
+Check "git diff Hook-Skript (erlaubt)" $h (BashCall "git diff .claude/hooks/block-env.ps1" $proj) 0
+Check "git add Hook-Skript (erlaubt)" $h (BashCall "git add .claude/hooks/block-env.ps1" $proj) 0
+Check "git add block-gh-merge.ps1 (erlaubt)" $h (BashCall "git add .claude/hooks/block-gh-merge.ps1" $proj) 0
+Check "cat settings.json mit 2>&1 (erlaubt)" $h (BashCall "cat .claude/settings.json 2>&1" $proj) 0
+Check "Set-Content in docs (erlaubt)" $h (BashCall "Set-Content docs/notes.md x" $proj) 0
+Check "Umleitung in tests (erlaubt)" $h (BashCall "echo x > tests/hooks/out.txt" $proj) 0
+Check "git status (erlaubt)" $h (BashCall "git status" $proj) 0
+Gap "cd .claude; cd hooks; echo x > a.ps1 (Pfad ueber mehrere Befehle)" $h (BashCall "cd .claude; cd hooks; echo x > a.ps1" $proj)
+
 "=== format-file.ps1 ==="
 function CheckFormat($label, $file, $content, $expectedExit, $expectedContent) {
   $script:total++

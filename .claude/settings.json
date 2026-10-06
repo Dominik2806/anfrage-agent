@@ -53,6 +53,16 @@
             "command": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File \"$env:CLAUDE_PROJECT_DIR\\.claude\\hooks\\block-gh-merge.ps1\"; exit $LASTEXITCODE"
           }
         ]
+      },
+      {
+        "matcher": "Bash|PowerShell",
+        "hooks": [
+          {
+            "type": "command",
+            "shell": "powershell",
+            "command": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File \"$env:CLAUDE_PROJECT_DIR\\.claude\\hooks\\block-guard-paths.ps1\"; exit $LASTEXITCODE"
+          }
+        ]
       }
     ],
     "PostToolUse": [
