@@ -218,7 +218,6 @@ Check "cat settings.json mit 2>&1 (erlaubt)" $h (BashCall "cat .claude/settings.
 Check "Set-Content in docs (erlaubt)" $h (BashCall "Set-Content docs/notes.md x" $proj) 0
 Check "Umleitung in tests (erlaubt)" $h (BashCall "echo x > tests/hooks/out.txt" $proj) 0
 Check "git status (erlaubt)" $h (BashCall "git status" $proj) 0
-Gap "cd .claude; cd hooks; echo x > a.ps1 (Pfad ueber mehrere Befehle)" $h (BashCall "cd .claude; cd hooks; echo x > a.ps1" $proj)
 
 $h = "block-guard-paths.ps1"
 Check "Alias sc auf Hook-Skript" $h (BashCall "sc .claude/hooks/block-env.ps1 'exit 0'" $proj) 2
@@ -234,6 +233,46 @@ Check "node -e writeFileSync auf Hook-Skript" $h (BashCall 'node -e "require(\"f
 Check "Select-String im Hook-Ordner (erlaubt)" $h (BashCall "Select-String -Path .claude/hooks/block-env.ps1 -Pattern exit" $proj) 0
 Check "git log fuer Hook-Ordner (erlaubt)" $h (BashCall "git log --oneline -- .claude/hooks" $proj) 0
 Check "git commit mit Pfad im Text (erlaubt)" $h (BashCall 'git commit -m "docs: notes on .claude/hooks"' $proj) 0
+
+$hookdir = Join-Path $proj ".claude\hooks"
+Check "cd .claude; cd hooks; echo x > a.ps1" $h (BashCall "cd .claude; cd hooks; echo x > a.ps1" $proj) 2
+Check "Set-Location .claude, dann relativer Pfad" $h (BashCall "Set-Location .claude; Set-Content hooks/block-env.ps1 x" $proj) 2
+Check 'Variable mit .claude, dann sc' $h (BashCall '$p=''.claude''; sc "$p/hooks/x" y' $proj) 2
+Check "Platzhalter .cl*/hooks/..." $h (BashCall "sc .cl*/hooks/block-env.ps1 x" $proj) 2
+Check "Remove-Item -Recurse -Force *" $h (BashCall "Remove-Item -Recurse -Force *" $proj) 2
+Check "Arbeitsverzeichnis im Hook-Ordner: Umleitung" $h (BashCall "echo x > a.ps1" $hookdir) 2
+Check "Arbeitsverzeichnis im Hook-Ordner: Set-Content" $h (BashCall "Set-Content block-env.ps1 x" $hookdir) 2
+Check "Arbeitsverzeichnis im Hook-Ordner: cat (erlaubt)" $h (BashCall "cat block-env.ps1" $hookdir) 0
+Check "Aufruf ueber Variable" $h (BashCall '$c=''Set-Content''; & $c .claude/hooks/x y' $proj) 2
+Check 'bash -c mit Umleitung' $h (BashCall 'bash -c "echo x > .claude/hooks/a"' $proj) 2
+Check 'cmd /c copy' $h (BashCall 'cmd /c copy x .claude\hooks\a' $proj) 2
+Check "git reset --hard" $h (BashCall "git reset --hard" $proj) 2
+Check "git restore ." $h (BashCall "git restore ." $proj) 2
+Check "git restore auf Hook-Skript" $h (BashCall "git restore .claude/hooks/block-env.ps1" $proj) 2
+Check "git checkout abc123 -- ." $h (BashCall "git checkout abc123 -- ." $proj) 2
+Check "git checkout ." $h (BashCall "git checkout ." $proj) 2
+Check "git clean -fd" $h (BashCall "git clean -fd" $proj) 2
+Check "git stash pop" $h (BashCall "git stash pop" $proj) 2
+Check "git apply x.patch" $h (BashCall "git apply x.patch" $proj) 2
+Check "git diff --output mit Pfad" $h (BashCall "git diff --output=out.txt .claude/hooks" $proj) 2
+Check "git restore -s HEAD~1 (Quelle)" $h (BashCall "git restore -s HEAD~1 docs/x.md" $proj) 2
+Check "git restore --source=HEAD~1" $h (BashCall "git restore --source=HEAD~1 docs/x.md" $proj) 2
+Check "git restore --staged --worktree" $h (BashCall "git restore --staged --worktree docs/x.md" $proj) 2
+Check "git restore -SW" $h (BashCall "git restore -SW docs/x.md" $proj) 2
+Check "git restore --staged (erlaubt)" $h (BashCall "git restore --staged docs/x.md" $proj) 0
+Check "git restore -S (erlaubt)" $h (BashCall "git restore -S docs/x.md" $proj) 0
+Check "git checkout -b (erlaubt)" $h (BashCall "git checkout -b fix/x" $proj) 0
+Check "git switch main (erlaubt)" $h (BashCall "git switch main" $proj) 0
+Check "git stash (erlaubt)" $h (BashCall "git stash" $proj) 0
+Check "git diff --stat (erlaubt)" $h (BashCall "git diff --stat" $proj) 0
+Check "git reset (ohne --hard, erlaubt)" $h (BashCall "git reset HEAD docs/x.md" $proj) 0
+Check 'Get-ChildItem | ForEach-Object (erlaubt)' $h (BashCall 'Get-ChildItem .claude/hooks | ForEach-Object { $_.Name }' $proj) 0
+Check 'gci | % { gc $_ } (erlaubt)' $h (BashCall 'gci .claude/hooks | % { gc $_ }' $proj) 0
+Check 'Variable zuweisen, ls (erlaubt)' $h (BashCall '$p = ''.claude''; ls $p' $proj) 0
+Check "ls * (erlaubt)" $h (BashCall "ls *" $proj) 0
+Check "Remove-Item im Build-Ordner (erlaubt)" $h (BashCall "Remove-Item build/tmp.txt" $proj) 0
+Check "Test-Path auf Hook-Skript (erlaubt)" $h (BashCall "Test-Path .claude/hooks/block-env.ps1" $proj) 0
+Gap 'Pfad aus Teilen: $a=.cla; $b=ude; Set-Content "$a$b/hooks/x"' $h (BashCall '$a=''.cla''; $b=''ude''; Set-Content "$a$b/hooks/x" y' $proj)
 
 "=== format-file.ps1 ==="
 function CheckFormat($label, $file, $content, $expectedExit, $expectedContent) {
