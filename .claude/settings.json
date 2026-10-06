@@ -6,6 +6,9 @@
       "Edit(/.claude/hooks/**)",
       "Edit(~/.claude/settings.json)",
       "Edit(~/.claude/settings.local.json)",
+      "Read(**/.env)",
+      "Read(**/.env.*)",
+      "Read(!**/.env.example)",
       "Bash(gh pr merge)",
       "Bash(gh pr merge *)",
       "PowerShell(gh pr merge)",
@@ -30,7 +33,7 @@
           {
             "type": "command",
             "shell": "powershell",
-            "command": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File \"$env:CLAUDE_PROJECT_DIR\\.claude\\hooks\\block-env.ps1\"; exit $LASTEXITCODE"
+            "command": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File \"$env:CLAUDE_PROJECT_DIR\\.claude\\hooks\\block-env.ps1\"; if ($LASTEXITCODE -ne 0) { exit 2 }; exit 0"
           }
         ]
       },
@@ -40,7 +43,7 @@
           {
             "type": "command",
             "shell": "powershell",
-            "command": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File \"$env:CLAUDE_PROJECT_DIR\\.claude\\hooks\\block-main-push.ps1\"; exit $LASTEXITCODE"
+            "command": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File \"$env:CLAUDE_PROJECT_DIR\\.claude\\hooks\\block-main-push.ps1\"; if ($LASTEXITCODE -ne 0) { exit 2 }; exit 0"
           }
         ]
       },
@@ -50,7 +53,7 @@
           {
             "type": "command",
             "shell": "powershell",
-            "command": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File \"$env:CLAUDE_PROJECT_DIR\\.claude\\hooks\\block-gh-merge.ps1\"; exit $LASTEXITCODE"
+            "command": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File \"$env:CLAUDE_PROJECT_DIR\\.claude\\hooks\\block-gh-merge.ps1\"; if ($LASTEXITCODE -ne 0) { exit 2 }; exit 0"
           }
         ]
       },
@@ -60,7 +63,7 @@
           {
             "type": "command",
             "shell": "powershell",
-            "command": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File \"$env:CLAUDE_PROJECT_DIR\\.claude\\hooks\\block-guard-paths.ps1\"; exit $LASTEXITCODE"
+            "command": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File \"$env:CLAUDE_PROJECT_DIR\\.claude\\hooks\\block-guard-paths.ps1\"; if ($LASTEXITCODE -ne 0) { exit 2 }; exit 0"
           }
         ]
       }
@@ -72,7 +75,7 @@
           {
             "type": "command",
             "shell": "powershell",
-            "command": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File \"$env:CLAUDE_PROJECT_DIR\\.claude\\hooks\\format-file.ps1\"; exit $LASTEXITCODE"
+            "command": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File \"$env:CLAUDE_PROJECT_DIR\\.claude\\hooks\\format-file.ps1\"; if ($LASTEXITCODE -ne 0) { exit 2 }; exit 0"
           }
         ]
       }

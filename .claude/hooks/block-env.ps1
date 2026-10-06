@@ -13,38 +13,45 @@ $ti = $data.tool_input
 $tool = [string]$data.tool_name
 $msg = "Blockiert: Zugriff auf .env-Dateien ist in diesem Projekt nicht erlaubt. Nutze stattdessen .env.example."
 
-# Felder mit Pfaden und Befehlen. Bei Glob ist pattern ein Dateimuster.
+# Felder mit Pfaden und Befehlen. Bei Glob ist pattern ein Dateimuster, bei Grep ein Suchtext (nicht geprueft).
 $names = @("file_path", "path", "command", "glob")
 if ($tool -eq "Glob") { $names += "pattern" }
 $values = @()
 foreach ($name in $names) {
   if ($ti -and $ti.$name) { $values += [string]$ti.$name }
 }
-# Bei Grep ist pattern ein Suchtext: nur auf das Literal pruefen
-$searchText = @()
-if ($ti -and $ti.pattern -and $tool -ne "Glob") { $searchText += [string]$ti.pattern }
 
-$envPattern = '(^|[\s\\/"''=(,{\[])\.env(\.(?!example\b)[\w.-]+)?($|[\s\\/"''|;&)*?,}\]])'
+$candidates = @('.env', '.env.local', '.env.production', '.env.development', '.env.test', '.env.staging')
 
-function Test-EnvGlob([string]$text) {
-  foreach ($tok in ($text -split '[\s\\/"''=,;|&(){}]+')) {
-    if ($tok -match '^\.(e|en|env)?[*?\[]') { return $true }
+function Test-EnvName([string]$word) {
+  # Nur den letzten Pfadteil betrachten
+  $name = $word -replace '\\', '/'
+  $name = $name.Substring($name.LastIndexOf('/') + 1)
+  # Windows ignoriert Punkte und Leerzeichen am Ende; alternative Datenstroeme (::$DATA) entfernen
+  $name = ($name -replace ':.*$', '').TrimEnd('.', ' ').ToLower()
+  if ($name.Length -eq 0) { return $false }
+
+  # .env und alles, was mit .env. beginnt; nur .env.example ist erlaubt
+  if (($name -match '^\.env(\..+)?$') -and ($name -ne '.env.example')) { return $true }
+
+  # Platzhalter: blockieren, wenn er eine .env-Datei treffen kann
+  if ($name -match '[*?\[]') {
+    if ((-not $name.StartsWith('.')) -and ($name -notmatch '[env]')) { return $false }
+    try {
+      foreach ($c in $candidates) { if ($c -like $name) { return $true } }
+    } catch { return $true }
   }
   return $false
 }
 
 foreach ($v in $values) {
-  # Fassung ohne Anfuehrungszeichen, Gravis, ^ und +, damit zusammengesetzte Namen auffallen
-  $norm = $v -replace '["''`^+]', ''
-  if (($v -match $envPattern) -or ($norm -match $envPattern) -or (Test-EnvGlob $v) -or (Test-EnvGlob $norm)) {
-    [Console]::Error.WriteLine($msg)
-    exit 2
-  }
-}
-foreach ($v in $searchText) {
-  if ($v -match $envPattern) {
-    [Console]::Error.WriteLine($msg)
-    exit 2
+  # Anfuehrungszeichen, Gravis, ^ und + entfernen, damit zusammengesetzte Namen auffallen
+  $clean = $v -replace '["''`^+]', ''
+  foreach ($w in ($clean -split '[\s=,;|&(){}<>]+')) {
+    if ($w -and (Test-EnvName $w)) {
+      [Console]::Error.WriteLine($msg)
+      exit 2
+    }
   }
 }
 exit 0

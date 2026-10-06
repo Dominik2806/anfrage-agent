@@ -73,6 +73,24 @@ Check "Bash ls .github (erlaubt)" $h (BashCall "ls .github" $proj) 0
 Check "Commit-Text mit .* (bekannte Falsch-Blockade)" $h (BashCall 'git commit -m "fix .* handling"' $proj) 2
 Gap 'Bash Get-ChildItem -Force | % {gc $_} (liest alle Dateien)' $h (BashCall 'Get-ChildItem -Force | % {gc $_}' $proj)
 
+Check "Bash cat .env.* (Platzhalter nach der Endung)" $h (BashCall "cat .env.*" $proj) 2
+Check "Bash cat .env.? (Platzhalter nach der Endung)" $h (BashCall "cat .env.?" $proj) 2
+Check "PowerShell Get-Content *.env (fuehrender Stern)" $h (BashCall "Get-Content *.env" $proj) 2
+Check "PowerShell gc ?env (fuehrendes Fragezeichen)" $h (BashCall "gc ?env" $proj) 2
+Check "PowerShell gc *env (fuehrender Stern)" $h (BashCall "gc *env" $proj) 2
+Check "Windows: Get-Content .env. (Punkt am Ende)" $h (BashCall "Get-Content .env." $proj) 2
+Check 'Windows: .env::$DATA (alternativer Datenstrom)' $h (BashCall 'Get-Content .env::$DATA' $proj) 2
+Check "Read .env. (Punkt am Ende)" $h (ReadCall "C:\proj\.env.") 2
+Check "PowerShell Get-ChildItem *.json (erlaubt)" $h (BashCall "Get-ChildItem *.json" $proj) 0
+Check "Bash ls *.md (erlaubt)" $h (BashCall "ls *.md" $proj) 0
+Check "PowerShell Get-Content .env.example (erlaubt)" $h (BashCall "Get-Content .env.example" $proj) 0
+
+Check "Bash cat .env.example-prod (nur .env.example ist erlaubt)" $h (BashCall "cat .env.example-prod" $proj) 2
+Check "Bash cat .\.env (mit .\)" $h (BashCall 'cat .\.env' $proj) 2
+Check "Schluessel ausserhalb des Projekts (erlaubt)" $h (BashCall 'node --env-file=C:\Users\sobek\.secrets\anfrage-agent.env app.js' $proj) 0
+Check "Bash git add . (erlaubt)" $h (BashCall "git add ." $proj) 0
+Check "Bash ls * (erlaubt, einzelner Stern)" $h (BashCall "ls *" $proj) 0
+
 "=== block-main-push.ps1 ==="
 $h = "block-main-push.ps1"
 $tmp = Join-Path $env:TEMP ("hooktest-" + [guid]::NewGuid().ToString("N").Substring(0, 8))
@@ -109,6 +127,22 @@ Check "voller Pfad zu git.exe" $h (BashCall '& "C:\Program Files\Git\cmd\git.exe
 Check "git -c x=y push -u origin feature/F02-hooks (erlaubt)" $h (BashCall "git -c core.x=y push -u origin feature/F02-hooks" $repoFeat) 0
 Check "git -c x=y status (erlaubt)" $h (BashCall "git -c core.x=y status" $repoFeat) 0
 Check "git -c user.name=x commit -m push (erlaubt)" $h (BashCall 'git -c user.name=x commit -m push' $repoFeat) 0
+$h = "block-main-push.ps1"
+Check 'Huelle: bash -c "git push origin main"' $h (BashCall 'bash -c "git push origin main"' $repoFeat) 2
+Check "Huelle: cmd /c git push origin main" $h (BashCall "cmd /c git push origin main" $repoFeat) 2
+Check 'Huelle: powershell -Command "git push origin main"' $h (BashCall 'powershell -Command "git push origin main"' $repoFeat) 2
+Check 'Huelle: pwsh -c "git push origin HEAD:main"' $h (BashCall 'pwsh -c "git push origin HEAD:main"' $repoFeat) 2
+Check 'Huelle: iex "git push origin main"' $h (BashCall 'iex "git push origin main"' $repoFeat) 2
+Check "Klammer: (git push origin main)" $h (BashCall "(git push origin main)" $repoFeat) 2
+Check "Block: & { git push origin main }" $h (BashCall "& { git push origin main }" $repoFeat) 2
+Check 'Kontrollstruktur: if ($true) { git push origin main }' $h (BashCall 'if ($true) { git push origin main }' $repoFeat) 2
+Check 'Unterbefehl: echo $(git push origin main)' $h (BashCall 'echo $(git push origin main)' $repoFeat) 2
+Check "Vorsatz: env X=1 git push origin main" $h (BashCall "env X=1 git push origin main" $repoFeat) 2
+Check 'Start-Process git -ArgumentList "push origin main"' $h (BashCall 'Start-Process git -ArgumentList "push origin main"' $repoFeat) 2
+Check 'Ziel zusammengesetzt: HEAD:ma"in"' $h (BashCall 'git push origin HEAD:ma"in"' $repoFeat) 2
+Check 'Huelle: bash -c "git status" (erlaubt)' $h (BashCall 'bash -c "git status"' $repoFeat) 0
+Check 'Huelle: powershell -c "git push origin feature/F02-hooks" (erlaubt)' $h (BashCall 'powershell -c "git push origin feature/F02-hooks"' $repoFeat) 0
+Check 'Text: git commit -m "docs: push main notes" (erlaubt)' $h (BashCall 'git commit -m "docs: push main notes"' $repoFeat) 0
 "--- Testrepository auf main ---"
 Check "push ohne Ziel auf main" $h (BashCall "git push" $repoMain) 2
 Check "git status auf main (erlaubt)" $h (BashCall "git status" $repoMain) 0
@@ -143,6 +177,20 @@ Check "gh auth status (erlaubt)" $h (BashCall "gh auth status" $proj) 0
 Check "echo gh pr merge (erlaubt, nur Text)" $h (BashCall "echo gh pr merge" $proj) 0
 Check "git commit mit Text 'gh pr merge' (erlaubt)" $h (BashCall 'git commit -m "gh pr merge"' $proj) 0
 
+$h = "block-gh-merge.ps1"
+Check 'Huelle: bash -c "gh pr merge 3"' $h (BashCall 'bash -c "gh pr merge 3"' $proj) 2
+Check 'Huelle: powershell -c "gh pr merge 3"' $h (BashCall 'powershell -c "gh pr merge 3"' $proj) 2
+Check "Huelle: cmd /c gh pr merge 3" $h (BashCall "cmd /c gh pr merge 3" $proj) 2
+Check 'Unterbefehl: echo $(gh pr merge 3)' $h (BashCall 'echo $(gh pr merge 3)' $proj) 2
+Check "Klammer: (gh pr merge 3)" $h (BashCall "(gh pr merge 3)" $proj) 2
+Check "Block: & { gh api -X PUT .../merge }" $h (BashCall "& { gh api -X PUT repos/o/r/pulls/3/merge }" $proj) 2
+Check "gh repo delete" $h (BashCall "gh repo delete o/r --yes" $proj) 2
+Check "gh secret set" $h (BashCall "gh secret set TOKEN" $proj) 2
+Check "gh workflow run" $h (BashCall "gh workflow run ci.yml" $proj) 2
+Check "gh release delete" $h (BashCall "gh release delete v1" $proj) 2
+Check 'Huelle: bash -c "gh pr view 3" (erlaubt)' $h (BashCall 'bash -c "gh pr view 3"' $proj) 0
+Check 'Huelle: bash -c "gh pr create --fill" (erlaubt)' $h (BashCall 'bash -c "gh pr create --fill"' $proj) 0
+
 "=== block-guard-paths.ps1 ==="
 $h = "block-guard-paths.ps1"
 $pyw = "python -c " + [char]34 + "open('.claude/hooks/block-env.ps1','w')" + [char]34
@@ -171,6 +219,21 @@ Check "Set-Content in docs (erlaubt)" $h (BashCall "Set-Content docs/notes.md x"
 Check "Umleitung in tests (erlaubt)" $h (BashCall "echo x > tests/hooks/out.txt" $proj) 0
 Check "git status (erlaubt)" $h (BashCall "git status" $proj) 0
 Gap "cd .claude; cd hooks; echo x > a.ps1 (Pfad ueber mehrere Befehle)" $h (BashCall "cd .claude; cd hooks; echo x > a.ps1" $proj)
+
+$h = "block-guard-paths.ps1"
+Check "Alias sc auf Hook-Skript" $h (BashCall "sc .claude/hooks/block-env.ps1 'exit 0'" $proj) 2
+Check "Alias ac auf settings.json" $h (BashCall "ac .claude/settings.json x" $proj) 2
+Check "Alias ni im Hook-Ordner" $h (BashCall "ni .claude/hooks/x.ps1" $proj) 2
+Check "Alias ri auf Hook-Skript" $h (BashCall "ri .claude/hooks/block-env.ps1" $proj) 2
+Check "Alias mi auf Hook-Skript" $h (BashCall "mi .claude/hooks/block-env.ps1 y.ps1" $proj) 2
+Check "copy ueber Hook-Skript" $h (BashCall "copy x.ps1 .claude/hooks/block-env.ps1" $proj) 2
+Check "move aus dem Hook-Ordner" $h (BashCall "move .claude/hooks/block-env.ps1 y.ps1" $proj) 2
+Check "rmdir Hook-Ordner" $h (BashCall "rmdir .claude/hooks" $proj) 2
+Check '.NET [IO.File]::Copy auf Hook-Skript' $h (BashCall '[IO.File]::Copy("a.ps1",".claude/hooks/block-env.ps1",$true)' $proj) 2
+Check "node -e writeFileSync auf Hook-Skript" $h (BashCall 'node -e "require(\"fs\").writeFileSync(\".claude/hooks/block-env.ps1\",\"\")"' $proj) 2
+Check "Select-String im Hook-Ordner (erlaubt)" $h (BashCall "Select-String -Path .claude/hooks/block-env.ps1 -Pattern exit" $proj) 0
+Check "git log fuer Hook-Ordner (erlaubt)" $h (BashCall "git log --oneline -- .claude/hooks" $proj) 0
+Check "git commit mit Pfad im Text (erlaubt)" $h (BashCall 'git commit -m "docs: notes on .claude/hooks"' $proj) 0
 
 "=== format-file.ps1 ==="
 function CheckFormat($label, $file, $content, $expectedExit, $expectedContent) {
@@ -230,6 +293,19 @@ if ($cfg) {
     & git -C $proj ls-files --error-unmatch $rel 2>$null | Out-Null
     CheckConfig ("Hook-Skript von Git verfolgt: " + $name) ($LASTEXITCODE -eq 0)
   }
+  foreach ($event in $cfg.hooks.PSObject.Properties) {
+    foreach ($entry in $event.Value) {
+      foreach ($hk in $entry.hooks) {
+        $hname = [regex]::Match([string]$hk.command, '\\hooks\\([A-Za-z0-9._-]+\.ps1)').Groups[1].Value
+        CheckConfig ("Hook-Aufruf bricht bei Fehler ab (Exit 2): " + $hname) (([string]$hk.command).Contains('if ($LASTEXITCODE -ne 0) { exit 2 }'))
+      }
+    }
+  }
+  CheckConfig "Hilfsdatei _common.ps1 vorhanden" (Test-Path (Join-Path $proj ".claude\hooks\_common.ps1"))
+  & git -C $proj ls-files --error-unmatch ".claude/hooks/_common.ps1" 2>$null | Out-Null
+  CheckConfig "Hilfsdatei _common.ps1 von Git verfolgt" ($LASTEXITCODE -eq 0)
+  CheckConfig "Read-Sperre fuer .env vorhanden" (@($cfg.permissions.deny) -contains "Read(**/.env)")
+  CheckConfig "Ausnahme fuer .env.example vorhanden" (@($cfg.permissions.deny) -contains "Read(!**/.env.example)")
   CheckConfig "Edit-Sperre fuer .claude/hooks vorhanden" (@($cfg.permissions.deny) -contains "Edit(/.claude/hooks/**)")
   CheckConfig "Edit-Sperre fuer settings.json vorhanden" (@($cfg.permissions.deny) -contains "Edit(/.claude/settings.json)")
   CheckConfig "Rueckfrage vor git push vorhanden" (@($cfg.permissions.ask) -contains "Bash(git push *)")
