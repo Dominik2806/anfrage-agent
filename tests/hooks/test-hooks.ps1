@@ -1,5 +1,5 @@
 # Testet alle drei Hooks direkt, ohne Claude Code.
-# Aufruf: powershell.exe -NoProfile -ExecutionPolicy Bypass -File .claude\hooks\test-hooks.ps1
+# Aufruf: powershell.exe -NoProfile -ExecutionPolicy Bypass -File tests/hooks/test-hooks.ps1
 
 $proj = (Resolve-Path (Join-Path $PSScriptRoot "..\..")).Path
 $hooks = Join-Path $proj ".claude\hooks"

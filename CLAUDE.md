@@ -30,7 +30,7 @@ Laufzeit 8 Wochen, Meilensteine M0–M6, Features F01–F34 (Auftrag Kapitel 3).
 - Quellcode öffentlich auf GitHub, MIT-Lizenz
 
 ## Befehle
-- Hooks testen (erwartet 0 Fehler): `powershell.exe -NoProfile -ExecutionPolicy Bypass -File .claude\hooks\test-hooks.ps1`
+- Hooks testen (erwartet 0 Fehler): `powershell.exe -NoProfile -ExecutionPolicy Bypass -File tests/hooks/test-hooks.ps1`
 - TypeScript, JSON, CSS formatieren: `npx prettier --write <Datei>`
 - Python formatieren: `python -m ruff format <Datei>`
 - Weitere Befehle erst eintragen, wenn sie existieren und ausprobiert wurden.
