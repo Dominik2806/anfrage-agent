@@ -1,0 +1,10 @@
+# Einheitliche Zeilenenden: Textdateien immer mit LF
+* text=auto eol=lf
+*.ps1 text eol=lf
+*.md text eol=lf
+*.json text eol=lf
+*.yml text eol=lf
+
+# Binaerdateien nie umwandeln
+*.pdf binary
+*.png binary
