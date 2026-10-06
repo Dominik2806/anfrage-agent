@@ -16,6 +16,17 @@ und welche Konsequenz daraus folgte. Neueste Einträge stehen oben.
 
 ## Einträge
 
+### 2026-10-06 · F02 · Fehlalarm: Glob mit Platzhalter blockiert (Code vom KI-Assistenten im Chat)
+- **Aufgabe:** Härtung des .env-Hooks gegen Platzhalter wie `cat *`.
+- **Verhalten des Agenten:** Der KI-Assistent im Chat (nicht Claude Code) sperrte jeden reinen Platzhalter,
+  auch bei den Werkzeugen Glob und Grep.
+- **Fehler:** Glob mit `docs/adr/*` und Grep mit dem Filter `*` wurden blockiert. Die Tests für normale Aufrufe
+  deckten nur Shell-Befehle ab, keine Werkzeug-Aufrufe.
+- **Entdeckung:** Claude Code meldete beim Schreiben eines ADR, dass sein Glob blockiert wurde. Ich gab die Meldung
+  an den KI-Assistenten im Chat weiter, der den Fehler nachstellte.
+- **Korrektur:** Glob und Grep lassen reine Platzhalter zu, `.env*` bleibt gesperrt. 14 neue Tests.
+- **Konsequenz:** Tests für normale Aufrufe müssen jedes Werkzeug abdecken, nicht nur die Shell.
+
 ### 2026-10-06 · F02 · Lücken in den Hooks (Code vom KI-Assistenten im Chat)
 - **Aufgabe:** Hooks für den Schutz von .env-Dateien und für Pushes auf main (F02).
 - **Verhalten des Agenten:** Der KI-Assistent im Chat (nicht Claude Code) lieferte Hook-Skripte,

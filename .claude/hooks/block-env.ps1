@@ -13,6 +13,8 @@ try {
 
 $ti = $data.tool_input
 $tool = [string]$data.tool_name
+# Glob und Grep listen nur Dateinamen oder suchen; ein reiner Platzhalter (*, **/*) ist dort harmlos
+$listingTool = ($tool -eq "Glob") -or ($tool -eq "Grep")
 $msg = "Blockiert: Zugriff auf .env-Dateien ist in diesem Projekt nicht erlaubt. Nutze stattdessen .env.example."
 
 function Stop-Blocked {
@@ -78,7 +80,7 @@ function Get-Variants([string]$v) {
 foreach ($name in $names) {
   if ($ti -and $ti.$name) {
     foreach ($variant in (Get-Variants ([string]$ti.$name))) {
-      if (Test-Words $variant $false) { Stop-Blocked }
+      if (Test-Words $variant $listingTool) { Stop-Blocked }
     }
   }
 }
