@@ -25,11 +25,15 @@ und welche Konsequenz daraus folgte. Neueste Einträge stehen oben.
   brachte neue Fehler: Der Tokenizer las nur das erste Wort jedes Teilbefehls und ließ Hüllen
   (bash -c, cmd /c, $(...)) durch. Dazu kamen fehlende Platzhalter (.env.*), Schreib-Aliase (sc, ni, ...)
   und NotebookEdit.
+    Zwei der überarbeiteten Hooks (block-main-push.ps1, block-gh-merge.ps1) blieben nach der
+  Korrektur ungespeichert, obwohl die zugehörigen Tests und die settings.json schon committet waren.
 - **Entdeckung:** Die erste Runde fand der security-reviewer beim ersten Einsatz (F03) durch Lesen des
   Quelltexts, ein Testlauf bestätigte sie. Das fehlende Skript fiel dem KI-Assistenten im Chat beim Lesen
   meiner Ausgabe von git status --short auf (Eintrag mit ??). Die zweite Runde fanden code-reviewer und
   security-reviewer, und jede Behauptung wurde vor der Korrektur als roter Test festgehalten.
-- **Korrektur:** Hooks neu geschrieben, 239 Tests, ein Test für die Verweise der settings.json, Edit-Sperre
+    Die zwei ungespeicherten Hooks bemerkte ich bei git status --short vor dem Push.
+  Gegen den alten Stand waren 76 Tests rot, gegen den neuen sind es 0.
+- **Korrektur:** Hooks neu geschrieben, 333 Tests, ein Test für die Verweise der settings.json, Edit-Sperre
   und Rückfrage vor git push, Aufrufe fehlersicher, test-writer ohne Bash.
 - **Konsequenz:** Hooks und Einstellungen ändert nur der Mensch (CLAUDE.md). Hooks sind Schutz gegen
   Versehen, keine Sandbox. Der Schlüssel liegt außerhalb des Projekts. Offen: grep -r KEY ., Pfade aus
