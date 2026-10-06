@@ -110,6 +110,24 @@ Check 'cat .en\v (Bash-Escape)' $h (BashCall 'cat .en\v' $proj) 2
 Check 'gc .e*.dev (nicht gelistete Datei)' $h (BashCall "gc .e*.dev" $proj) 2
 Check 'Tiefe: env env env env env cat .env' $h (BashCall "env env env env env cat .env" $proj) 2
 
+$h = "block-env.ps1"
+function GlobCall($p) { @{ tool_name = "Glob"; tool_input = @{ pattern = $p } } }
+function GrepCall($pt, $path, $glob) { $i = @{ pattern = $pt }; if ($path) { $i.path = $path }; if ($glob) { $i.glob = $glob }; @{ tool_name = "Grep"; tool_input = $i } }
+Check "Glob docs/adr/* (erlaubt)" $h (GlobCall "docs/adr/*") 0
+Check "Glob **/* (erlaubt)" $h (GlobCall "**/*") 0
+Check "Glob * (erlaubt)" $h (GlobCall "*") 0
+Check "Glob **/*.md (erlaubt)" $h (GlobCall "**/*.md") 0
+Check "Glob .claude/hooks/*.ps1 (erlaubt)" $h (GlobCall ".claude/hooks/*.ps1") 0
+Check "Glob .env* (blockiert)" $h (GlobCall ".env*") 2
+Check "Glob **/.env (blockiert)" $h (GlobCall "**/.env") 2
+Check "Grep path . ohne glob (erlaubt)" $h (GrepCall "TODO" "." $null) 0
+Check "Grep glob * (erlaubt)" $h (GrepCall "TODO" "." "*") 0
+Check "Grep glob *.md (erlaubt)" $h (GrepCall "TODO" "docs/" "*.md") 0
+Check "Grep glob .env* (blockiert)" $h (GrepCall "KEY" "." ".env*") 2
+Check "Grep path .env (blockiert)" $h (GrepCall "KEY" ".env" $null) 2
+Check "Read docs/adr/README.md (erlaubt)" $h (ReadCall "C:\proj\docs\adr\README.md") 0
+Check "Bash ls docs/adr/* (erlaubt)" $h (BashCall "ls docs/adr/*" $proj) 0
+
 "=== block-main-push.ps1 ==="
 $h = "block-main-push.ps1"
 $tmp = Join-Path $env:TEMP ("hooktest-" + [guid]::NewGuid().ToString("N").Substring(0, 8))
