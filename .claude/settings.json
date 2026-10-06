@@ -1,4 +1,27 @@
 {
+  "permissions": {
+    "deny": [
+      "Edit(/.claude/settings.json)",
+      "Edit(/.claude/settings.local.json)",
+      "Edit(/.claude/hooks/**)",
+      "Edit(~/.claude/settings.json)",
+      "Edit(~/.claude/settings.local.json)",
+      "Bash(gh pr merge)",
+      "Bash(gh pr merge *)",
+      "PowerShell(gh pr merge)",
+      "PowerShell(gh pr merge *)"
+    ],
+    "ask": [
+      "Bash(git push)",
+      "Bash(git push *)",
+      "Bash(git * push)",
+      "Bash(git * push *)",
+      "PowerShell(git push)",
+      "PowerShell(git push *)",
+      "PowerShell(git * push)",
+      "PowerShell(git * push *)"
+    ]
+  },
   "hooks": {
     "PreToolUse": [
       {
@@ -18,6 +41,16 @@
             "type": "command",
             "shell": "powershell",
             "command": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File \"$env:CLAUDE_PROJECT_DIR\\.claude\\hooks\\block-main-push.ps1\"; exit $LASTEXITCODE"
+          }
+        ]
+      },
+      {
+        "matcher": "Bash|PowerShell",
+        "hooks": [
+          {
+            "type": "command",
+            "shell": "powershell",
+            "command": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File \"$env:CLAUDE_PROJECT_DIR\\.claude\\hooks\\block-gh-merge.ps1\"; exit $LASTEXITCODE"
           }
         ]
       }
