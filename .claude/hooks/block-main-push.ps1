@@ -1,6 +1,8 @@
 # Blockiert Pushes auf main/master (PreToolUse-Hook fuer Bash und PowerShell).
 # Exit 2 = Befehl blockieren, Exit 0 = erlauben.
 
+. (Join-Path $PSScriptRoot '_common.ps1')
+
 $raw = [Console]::In.ReadToEnd()
 try {
   $data = $raw | ConvertFrom-Json
@@ -16,33 +18,18 @@ $msg = "Blockiert: Pushes auf main/master sind nicht erlaubt. Arbeite auf einem 
 $cwd = if ($data.cwd) { [string]$data.cwd } else { $env:CLAUDE_PROJECT_DIR }
 if (-not $cwd) { $cwd = (Get-Location).Path }
 
-function Get-Tokens([string]$segment) {
-  $found = [regex]::Matches($segment, '"[^"]*"|''[^'']*''|\S+')
-  $result = @()
-  foreach ($f in $found) { $result += $f.Value.Trim([char]34, [char]39) }
-  return $result
-}
-
-# Ein Befehl kann aus mehreren Teilen bestehen: ; && || | oder Zeilenumbruch.
-$segments = $cmd -split '&&|\|\||[;|&\r\n]'
-
-foreach ($segment in $segments) {
-  $tokens = @(Get-Tokens $segment)
-  $i = 0
-  while ($i -lt $tokens.Count -and $tokens[$i] -match '^(&|\.|call|[A-Za-z_][A-Za-z0-9_]*=.*)$') { $i++ }
-  if ($i -ge $tokens.Count) { continue }
-
-  $leaf = ($tokens[$i] -replace '^.*[\\/]', '').ToLower() -replace '\.exe$', ''
-  if ($leaf -ne 'git') { continue }
-  $i++
+foreach ($inv in @(Get-Invocations $cmd)) {
+  if ($inv.Program -ne 'git') { continue }
+  $tokens = @($inv.Arguments)
+  $repo = $cwd
 
   # Globale git-Optionen samt Wert ueberspringen (-c name=wert, -C Pfad, ...)
-  $repo = $cwd
+  $i = 0
   while ($i -lt $tokens.Count -and $tokens[$i].StartsWith('-')) {
     $opt = $tokens[$i]
     if ($opt -ceq '-C' -and ($i + 1) -lt $tokens.Count) {
+      $p = $tokens[$i + 1]
       try {
-        $p = $tokens[$i + 1]
         if ([System.IO.Path]::IsPathRooted($p)) { $repo = $p } else { $repo = Join-Path $repo $p }
       } catch { }
       $i += 2
