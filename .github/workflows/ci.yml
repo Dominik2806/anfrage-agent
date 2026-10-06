@@ -1,0 +1,102 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+# Minimale Rechte: Die Pipeline darf den Code nur lesen.
+permissions:
+  contents: read
+
+# Ein neuer Push bricht den laufenden Lauf desselben Branches ab.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  hook-tests:
+    name: Hook-Tests
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.13'
+
+      - name: Werkzeuge installieren
+        run: |
+          npm ci
+          python -m pip install ruff==0.16.10
+
+      - name: Hook-Tests ausfuehren
+        shell: powershell
+        run: powershell.exe -NoProfile -ExecutionPolicy Bypass -File tests/hooks/test-hooks.ps1
+
+  formatierung:
+    name: Formatierung
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.13'
+
+      - name: Werkzeuge installieren
+        run: |
+          npm ci
+          python -m pip install ruff==0.16.10
+
+      # Prueft nur, aendert nichts. Passt zu dem, was der Hook format-file formatiert.
+      - name: Prettier (TypeScript, JavaScript, CSS)
+        run: npx prettier --check --no-error-on-unmatched-pattern "**/*.{ts,tsx,js,jsx,css}"
+
+      - name: Ruff (Python)
+        run: python -m ruff format --check .
+
+      # Platzhalter fuer die naechsten Features:
+      #   Typpruefung (tsc) ab F11, Linting (eslint, ruff check) und Tests (vitest, pytest) ab F06.
+
+  geschuetzte-pfade:
+    name: Geschuetzte Pfade
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Aenderungen an Hooks, Tests und Pipeline melden
+        env:
+          BASE: ${{ github.base_ref }}
+        run: |
+          files=$(git diff --name-only "origin/${BASE}...HEAD" -- .claude tests/hooks .github || true)
+          if [ -z "$files" ]; then
+            echo "Keine Aenderungen in geschuetzten Pfaden." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          {
+            echo "### Dieser Pull Request aendert geschuetzte Pfade"
+            echo
+            echo "Jede Zeile im Diff selbst lesen. Hooks, Einstellungen, Tests und Pipeline duerfen nicht unbemerkt aufgeweicht werden."
+            echo
+            echo "$files" | sed 's/^/- /'
+          } >> "$GITHUB_STEP_SUMMARY"
+          while IFS= read -r f; do
+            echo "::warning file=${f}::Geschuetzter Pfad geaendert"
+          done <<< "$files"
