@@ -1,13 +1,39 @@
 {
+  "permissions": {
+    "deny": [
+      "Edit(/.claude/settings.json)",
+      "Edit(/.claude/settings.local.json)",
+      "Edit(/.claude/hooks/**)",
+      "Edit(~/.claude/settings.json)",
+      "Edit(~/.claude/settings.local.json)",
+      "Read(**/.env)",
+      "Read(**/.env.*)",
+      "Read(!**/.env.example)",
+      "Bash(gh pr merge)",
+      "Bash(gh pr merge *)",
+      "PowerShell(gh pr merge)",
+      "PowerShell(gh pr merge *)"
+    ],
+    "ask": [
+      "Bash(git push)",
+      "Bash(git push *)",
+      "Bash(git * push)",
+      "Bash(git * push *)",
+      "PowerShell(git push)",
+      "PowerShell(git push *)",
+      "PowerShell(git * push)",
+      "PowerShell(git * push *)"
+    ]
+  },
   "hooks": {
     "PreToolUse": [
       {
-        "matcher": "Read|Edit|Write|Grep|Glob|Bash|PowerShell",
+        "matcher": "Read|Edit|Write|MultiEdit|NotebookEdit|Grep|Glob|Bash|PowerShell",
         "hooks": [
           {
             "type": "command",
             "shell": "powershell",
-            "command": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File \"$env:CLAUDE_PROJECT_DIR\\.claude\\hooks\\block-env.ps1\"; exit $LASTEXITCODE"
+            "command": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File \"$env:CLAUDE_PROJECT_DIR\\.claude\\hooks\\block-env.ps1\"; if ($LASTEXITCODE -ne 0) { exit 2 }; exit 0"
           }
         ]
       },
@@ -17,7 +43,27 @@
           {
             "type": "command",
             "shell": "powershell",
-            "command": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File \"$env:CLAUDE_PROJECT_DIR\\.claude\\hooks\\block-main-push.ps1\"; exit $LASTEXITCODE"
+            "command": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File \"$env:CLAUDE_PROJECT_DIR\\.claude\\hooks\\block-main-push.ps1\"; if ($LASTEXITCODE -ne 0) { exit 2 }; exit 0"
+          }
+        ]
+      },
+      {
+        "matcher": "Bash|PowerShell",
+        "hooks": [
+          {
+            "type": "command",
+            "shell": "powershell",
+            "command": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File \"$env:CLAUDE_PROJECT_DIR\\.claude\\hooks\\block-gh-merge.ps1\"; if ($LASTEXITCODE -ne 0) { exit 2 }; exit 0"
+          }
+        ]
+      },
+      {
+        "matcher": "Bash|PowerShell",
+        "hooks": [
+          {
+            "type": "command",
+            "shell": "powershell",
+            "command": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File \"$env:CLAUDE_PROJECT_DIR\\.claude\\hooks\\block-guard-paths.ps1\"; if ($LASTEXITCODE -ne 0) { exit 2 }; exit 0"
           }
         ]
       }
@@ -29,7 +75,7 @@
           {
             "type": "command",
             "shell": "powershell",
-            "command": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File \"$env:CLAUDE_PROJECT_DIR\\.claude\\hooks\\format-file.ps1\"; exit $LASTEXITCODE"
+            "command": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File \"$env:CLAUDE_PROJECT_DIR\\.claude\\hooks\\format-file.ps1\"; if ($LASTEXITCODE -ne 0) { exit 2 }; exit 0"
           }
         ]
       }

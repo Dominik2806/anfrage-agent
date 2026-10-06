@@ -16,6 +16,7 @@ Laufzeit 8 Wochen, Meilensteine M0–M6, Features F01–F34 (Auftrag Kapitel 3).
 - `mcp-server/` – Datenservice „hoffmann-data“ (Tools, Resources, Prompts)
 - `data/` – synthetische Testdaten, Skripte zum Befüllen der Datenbank
 - `evals/` – Bewertungsset (mind. 50 Fälle) und Berichte
+- `tests/` – Tests der Hooks (`tests/hooks/`)
 - `docs/` – AUFTRAG.md, ARCHITECTURE.md, EVALS.md, `adr/`
 - `.claude/` – Subagents, Skills, Hooks; `.github/workflows/` – CI
 - Root: README.md, AGENT_LOG.md, CHANGELOG.md, .env.example
@@ -30,7 +31,7 @@ Laufzeit 8 Wochen, Meilensteine M0–M6, Features F01–F34 (Auftrag Kapitel 3).
 - Quellcode öffentlich auf GitHub, MIT-Lizenz
 
 ## Befehle
-- Hooks testen (erwartet 0 Fehler): `powershell.exe -NoProfile -ExecutionPolicy Bypass -File .claude\hooks\test-hooks.ps1`
+- Hooks testen (erwartet 0 Fehler): `powershell.exe -NoProfile -ExecutionPolicy Bypass -File tests/hooks/test-hooks.ps1`
 - TypeScript, JSON, CSS formatieren: `npx prettier --write <Datei>`
 - Python formatieren: `python -m ruff format <Datei>`
 - Weitere Befehle erst eintragen, wenn sie existieren und ausprobiert wurden.
@@ -79,6 +80,10 @@ Durchsetzung:
 - Diese Datei laufend pflegen; Teilprojekte (`web/`, `agent/`, `mcp-server/`) erhalten eine eigene CLAUDE.md.
 - Git-Ablauf: Du darfst Branches anlegen, committen, pushen und Pull Requests öffnen.
   Zeige vor jedem Commit den Diff. Nie selbst mergen, nie auf `main` pushen.
-- Hooks in `.claude/hooks/` schützen .env-Dateien und `main` und formatieren geänderte
-  Dateien. Umgehe sie nicht: Blockiert ein Hook einen Aufruf, melde das und suche keinen
-  anderen Weg. Schreibe „.env“ nicht in Commit-Nachrichten, der Hook blockiert sonst.
+  Jeder Push verlangt eine Bestätigung.
+- Hooks (`.claude/hooks/`) und `.claude/settings.json` ändert nur der Mensch. Dein Schreibwerkzeug ist dort
+  gesperrt, Shell-Befehle auf diese Pfade prüft ein Hook. Das ist Schutz gegen Versehen und nicht
+  lückenlos: Umgehen ist verboten. Blockiert ein Hook einen Aufruf, melde das und suche keinen anderen Weg.
+  Schreibe „.env“ nicht in Commit-Nachrichten, der Hook blockiert sonst.
+- Der echte API-Schlüssel liegt außerhalb des Projektordners. Lege nie eine `.env` im Projekt an.
+- Gib dem code-reviewer bei geänderten Dateien den Diff mit, sonst sieht er die Änderung nicht.
