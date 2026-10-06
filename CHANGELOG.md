@@ -7,6 +7,7 @@
   Platzhalter und zusammengesetzte Namen für .env, Schreibzugriffe auf Hooks und Einstellungen
 - Edit-Sperre für Hooks und Einstellungen, Rückfrage vor git push und Sperre für gh pr merge
 - test-writer ohne Bash, Hook-Tests nach tests/hooks verschoben
+- Hooks erkennen Hüllen und Unterausdrücke, Platzhalter und Windows-Namensformen für .env; Schreibzugriffe auf Hooks nur noch lesend erlaubt (Positivliste); überschreibende git-Befehle blockiert; Hook-Aufrufe fehlersicher
 
 ### Hinzugefügt
 - F01: Repository, Ordnerstruktur, CLAUDE.md, Entwicklungsprotokoll

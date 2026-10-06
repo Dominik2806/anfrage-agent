@@ -16,6 +16,7 @@ Laufzeit 8 Wochen, Meilensteine M0–M6, Features F01–F34 (Auftrag Kapitel 3).
 - `mcp-server/` – Datenservice „hoffmann-data“ (Tools, Resources, Prompts)
 - `data/` – synthetische Testdaten, Skripte zum Befüllen der Datenbank
 - `evals/` – Bewertungsset (mind. 50 Fälle) und Berichte
+- `tests/` – Tests der Hooks (`tests/hooks/`)
 - `docs/` – AUFTRAG.md, ARCHITECTURE.md, EVALS.md, `adr/`
 - `.claude/` – Subagents, Skills, Hooks; `.github/workflows/` – CI
 - Root: README.md, AGENT_LOG.md, CHANGELOG.md, .env.example
@@ -79,8 +80,10 @@ Durchsetzung:
 - Diese Datei laufend pflegen; Teilprojekte (`web/`, `agent/`, `mcp-server/`) erhalten eine eigene CLAUDE.md.
 - Git-Ablauf: Du darfst Branches anlegen, committen, pushen und Pull Requests öffnen.
   Zeige vor jedem Commit den Diff. Nie selbst mergen, nie auf `main` pushen.
-- Hooks (`.claude/hooks/`) und `.claude/settings.json` ändert nur der Mensch. Sie sind für dich
-  technisch gesperrt. Blockiert ein Hook einen Aufruf, melde das und suche keinen anderen Weg.
+  Jeder Push verlangt eine Bestätigung.
+- Hooks (`.claude/hooks/`) und `.claude/settings.json` ändert nur der Mensch. Dein Schreibwerkzeug ist dort
+  gesperrt, Shell-Befehle auf diese Pfade prüft ein Hook. Das ist Schutz gegen Versehen und nicht
+  lückenlos: Umgehen ist verboten. Blockiert ein Hook einen Aufruf, melde das und suche keinen anderen Weg.
   Schreibe „.env“ nicht in Commit-Nachrichten, der Hook blockiert sonst.
 - Der echte API-Schlüssel liegt außerhalb des Projektordners. Lege nie eine `.env` im Projekt an.
 - Gib dem code-reviewer bei geänderten Dateien den Diff mit, sonst sieht er die Änderung nicht.
