@@ -36,6 +36,7 @@ Laufzeit 8 Wochen, Meilensteine M0–M6, Features F01–F34 (Auftrag Kapitel 3).
 - Python formatieren: `python -m ruff format <Datei>`
 - Weitere Befehle erst eintragen, wenn sie existieren und ausprobiert wurden.
   Ziel: lokale Einrichtung mit höchstens fünf Befehlen.
+- Pipeline-Status eines Pull Requests anzeigen: `gh pr checks <Nummer>`
 
 ## Konventionen
 - Sprache der Doku und Nutzertexte: Deutsch. Code-Bezeichner wie in Auftrag Kapitel 6.4 (z. B. `search_products`).
@@ -87,3 +88,5 @@ Durchsetzung:
   Schreibe „.env“ nicht in Commit-Nachrichten, der Hook blockiert sonst.
 - Der echte API-Schlüssel liegt außerhalb des Projektordners. Lege nie eine `.env` im Projekt an.
 - Gib dem code-reviewer bei geänderten Dateien den Diff mit, sonst sieht er die Änderung nicht.
+- Nach dem Öffnen eines Pull Requests auf die Pipeline warten (Hook-Tests, Formatierung). Ist sie rot,
+  nenne die Ursache aus dem Protokoll und umgehe sie nicht.
