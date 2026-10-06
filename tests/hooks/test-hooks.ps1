@@ -379,6 +379,8 @@ Check 'git switch --discard-changes main' $h (BashCall "git switch --discard-cha
 Check 'git checkout feature/x (erlaubt)' $h (BashCall "git checkout feature/x" $proj) 0
 Check 'Tiefe: bash -c in bash -c in ...' $h (BashCall 'bash -c "bash -c \"bash -c \\\"bash -c \\\\\\\"bash -c \\\\\\\\\\\\\\\"sc .claude/hooks/x y\\\\\\\\\\\\\\\"\\\\\\\"\\\"\""' $proj) 2
 
+Check "ABSICHTLICH ROT (Gegenprobe fuer die CI)" "block-env.ps1" (BashCall "git status" $proj) 2
+
 "=== format-file.ps1 ==="
 function CheckFormat($label, $file, $content, $expectedExit, $expectedContent) {
   $script:total++
