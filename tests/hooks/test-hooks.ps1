@@ -174,6 +174,38 @@ try {
   Remove-Item $tmp -Recurse -Force -ErrorAction SilentlyContinue
 }
 
+"=== settings.json ==="
+function CheckConfig($label, $ok) {
+  $script:total++
+  if ($ok) { $r = "OK    " } else { $r = "FEHLER"; $script:fail++ }
+  "{0} {1}" -f $r, $label
+}
+$settingsPath = Join-Path $proj ".claude\settings.json"
+$cfg = $null
+try { $cfg = [System.IO.File]::ReadAllText($settingsPath) | ConvertFrom-Json } catch { }
+CheckConfig "settings.json ist gueltiges JSON" ($null -ne $cfg)
+if ($cfg) {
+  $files = @()
+  foreach ($event in $cfg.hooks.PSObject.Properties) {
+    foreach ($entry in $event.Value) {
+      foreach ($hk in $entry.hooks) {
+        foreach ($m in [regex]::Matches([string]$hk.command, '\\hooks\\([A-Za-z0-9._-]+\.ps1)')) { $files += $m.Groups[1].Value }
+      }
+    }
+  }
+  $files = @($files | Sort-Object -Unique)
+  CheckConfig "settings.json nennt mindestens drei Hook-Skripte" ($files.Count -ge 3)
+  foreach ($name in $files) {
+    $rel = ".claude/hooks/" + $name
+    CheckConfig ("Hook-Skript vorhanden: " + $name) (Test-Path (Join-Path $proj $rel))
+    & git -C $proj ls-files --error-unmatch $rel 2>$null | Out-Null
+    CheckConfig ("Hook-Skript von Git verfolgt: " + $name) ($LASTEXITCODE -eq 0)
+  }
+  CheckConfig "Edit-Sperre fuer .claude/hooks vorhanden" (@($cfg.permissions.deny) -contains "Edit(/.claude/hooks/**)")
+  CheckConfig "Edit-Sperre fuer settings.json vorhanden" (@($cfg.permissions.deny) -contains "Edit(/.claude/settings.json)")
+  CheckConfig "Rueckfrage vor git push vorhanden" (@($cfg.permissions.ask) -contains "Bash(git push *)")
+}
+
 ""
 "Ergebnis: {0} Tests, {1} Fehler" -f $script:total, $script:fail
 exit $script:fail
