@@ -16,6 +16,36 @@ und welche Konsequenz daraus folgte. Neueste Einträge stehen oben.
 
 ## Einträge
 
+### 2026-10-07 · F05 · Fehler in eigenen Datenbank-Tests und im Schema (Code von Claude Code, ein Fehler vom KI-Assistenten im Chat)
+- **Aufgabe:** Tests für das Datenbankschema und die Testdaten schreiben (F05, tests/db/).
+- **Verhalten des Agenten:** Ich schrieb die ersten Tests, die Beziehungen, Einschränkungen (CHECK, UNIQUE)
+  und Zeilensicherheit (RLS) prüfen sollten.
+- **Fehler:**
+  - Eigene Fehler, beim Durchlesen selbst bemerkt: `getattr(make, table[:-1])` hätte bei `activities`
+    den Namen `activitie` ergeben. `role.as_string()` funktioniert in psycopg 3 ohne Kontext nicht.
+  - Befunde der Reviewer (code-reviewer, security-reviewer) an den ersten Tests:
+    - `rejected()` prüfte nur die Fehlerklasse, nicht den Namen des Constraints. Ein Test konnte
+      aus dem falschen Grund bestehen.
+    - Der erste `rejected`-Aufruf lief ohne Savepoint. Ein fehlender Constraint hätte committet.
+    - Tests konnten in der CI stumm übersprungen werden (Exit 0).
+    - Die Test-URL wurde nicht auf den Host geprüft.
+    - RLS wurde nur als Flag geprüft, nicht in der Wirkung.
+    - Es fehlten Tests für NOT NULL, Standardwerte, Löschschutz, Identity und doppelte E-Mail
+      über Kunden.
+  - Tests geschrieben, aber nicht ausgeführt, weil pytest und psycopg lokal fehlten. Ausgeführt
+    wurden sie nur im Sandbox-Lauf des KI-Assistenten im Chat und später in der CI.
+  - Fehler vom KI-Assistenten im Chat (nicht von Claude Code): `max_discount_percent` war
+    `numeric(4,2)`, dadurch war der Wert 100 nicht speicherbar.
+- **Entdeckung:** Die zwei Test-Fehler fand ich beim Durchlesen meines Codes. Die Reviewer-Befunde kamen
+  von code-reviewer und security-reviewer. Den Typfehler bei `max_discount_percent` bemerkte ich selbst.
+- **Korrektur:** Alle genannten Punkte behoben, `max_discount_percent` ist jetzt `numeric(5,2)`.
+- **Verifikation (durch den KI-Assistenten im Chat, nicht durch Claude Code):** Im Sandbox-Lauf des
+  Assistenten, nicht im Projekt, liefen alle 207 Tests gegen einen lokalen Postgres 16 (190
+  Datenbank-Tests, 17 ohne Datenbank), alle bestanden. Absichtlich beschädigtes Schema (Preis-CHECK,
+  RLS, NOT NULL, ON DELETE CASCADE) wurde von den Tests erkannt.
+- **Konsequenz:** Der erste Lauf in der CI mit Postgres 17 steht noch aus. Erst er zeigt, ob die Tests
+  auch außerhalb der Chat-Sandbox bestehen.
+
 ### 2026-10-06 · F02 · Fehlalarm: Glob mit Platzhalter blockiert (Code vom KI-Assistenten im Chat)
 - **Aufgabe:** Härtung des .env-Hooks gegen Platzhalter wie `cat *`.
 - **Verhalten des Agenten:** Der KI-Assistent im Chat (nicht Claude Code) sperrte jeden reinen Platzhalter,

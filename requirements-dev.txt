@@ -1,0 +1,3 @@
+# Entwicklungs- und Testabhaengigkeiten (F05). Versionen fest, damit Lauf und Ergebnis reproduzierbar sind.
+psycopg[binary]==3.3.6
+pytest==9.1.1
