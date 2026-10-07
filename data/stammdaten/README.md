@@ -2,7 +2,7 @@
 
 Alle Daten sind synthetisch und fiktiv (Domains und Adressen enden auf `.example`, keine Telefonnummern). Das Seed-Skript (F05) liest diese Dateien und befüllt die Datenbank. Struktur: `db/schema.sql` und `docs/DATENMODELL.md`.
 
-Stand: Schritt 2a (Katalog). Kunden, Kontakte, Aktivitäten und Rabattregeln folgen in 2b bis 2d.
+Stand: Schritte 2a und 2b (Katalog, Kunden, Kontakte). Aktivitäten und Rabattregeln folgen in 2c und 2d.
 
 ## Dateien
 
@@ -10,6 +10,8 @@ Stand: Schritt 2a (Katalog). Kunden, Kontakte, Aktivitäten und Rabattregeln fol
 |---|---|---|
 | `products.json` | 40 Artikel | `products` |
 | `product_fits.json` | Zuordnung Ersatzteil zu Anlage | `product_fits` |
+| `customers.json` | 21 Firmen (14 Bestandskunden, 6 Leads, 1 inaktiv) | `customers` |
+| `contacts.json` | 35 Ansprechpersonen, 1 bis 2 je Firma | `contacts` |
 
 ## Natürliche Schlüssel
 
@@ -17,6 +19,9 @@ Verweise laufen nie über IDs, sondern über `article_number` (später auch `dom
 
 - `products.json`: Felder wie in der Tabelle `products` (ohne `id`). `technical_data` hat englische Schlüssel mit Einheit im Namen (`belt_width_mm`, `motor_power_kw`).
 - `product_fits.json`: `part` (Artikelnummer des Ersatzteils), `fits` (Artikelnummer der Anlage oder des Gehäuses), `note` (optional).
+- `customers.json`: Felder wie in der Tabelle `customers` (ohne `id`). Natürliche Schlüssel sind `domain` und `company_name` (ohne Beachtung der Groß-/Kleinschreibung). `created_at` steht absolut mit Zeitzone in den Daten.
+- `contacts.json`: Felder wie in der Tabelle `contacts` (ohne `id`), statt `customer_id` das Feld `customer_domain`. Natürlicher Schlüssel ist `email`. Die Domain der E-Mail-Adresse ist die Domain der Firma (Konsistenzprüfung 2). `created_at` ist nie früher als `created_at` der Firma.
+- Die Aktivitäten (2c) verweisen über `customer_domain` und optional `contact_email`. Sie liegen zeitlich nach `created_at` der Firma (Prüfung 3). Aktivitäten beginnen etwa im Januar 2025.
 
 ## Preise
 
@@ -46,6 +51,11 @@ Diese Lücken sind gewollt. Sie dürfen nicht „repariert“ werden, weil Bewer
 - **Ähnliche Namen:** Antriebsmotor 0,75 kW und 1,5 kW, Gurtförderer Leicht, Standard und Schwerlast, Wartungsvertrag Basis, Plus und Premium. Unscharfe Anfragen können mehrdeutig sein.
 - **Alternativbezeichnungen:** Jede Beschreibung enthält Umschreibungen („Auch: …“), damit Produkte auch ohne Artikelnummer auffindbar sind.
 - **Unbekannte Produkte (fehlen absichtlich, ohne Artikelnummer):** Rollenbahn, Kettenförderer, Hubtisch, Zahnriemenförderer, Sortieranlage, Kühlschmierstoff, Schulung und Software. Diese Begriffe dürfen in den Testdaten nicht mit einer Artikelnummer vorkommen.
+- **Ähnliche Firmen (Absender-Abgleich):** „Hartmann Metallverarbeitung GmbH“ (`hartmann-metallverarbeitung.example`, Bestandskunde, Deutschland) und „Hartmann Metallbearbeitung GmbH“ (`hartmann-metallbearbeitung.example`, Lead, Österreich) sind verschiedene Firmen mit ähnlichem Namen und ähnlicher Domain. Beide Geschäftsführer heißen Hartmann (Bernd und Markus). Ein Absender der einen darf nicht dem anderen zugeordnet werden.
+- **Inaktiver Kunde:** „Wiesental Metallguss GmbH“ (`inactive`, 1 Kontakt). Eine Anfrage von dort ist kein Neukunde, aber auch kein aktiver Bestandskunde.
+- **Leads:** 6 Firmen mit Status `lead`, je ein Kontakt, angelegt 2025 und 2026. Sie haben keine Historie vor ihrem Anlagedatum.
+- **Kunde für eine frühere Reklamation:** „Brenner Automotive Systeme GmbH“ (Bestandskunde seit 2019, zwei Kontakte, einer davon englischsprachig) ist als Kunde mit früherer Reklamation in den Aktivitäten (2c) vorgesehen.
+- **Sprache:** 7 Kontakte mit `language` = `en`, darunter Kontakte in Deutschland und der Schweiz. Die Antwortsprache folgt der Anfrage, nicht dem Land.
 - **Artikelnummern in Freitexten** müssen im Katalog existieren (Konsistenzprüfung 5, `docs/DATENMODELL.md` Abschnitt 5).
 
 ## Offene Bestätigung durch F16

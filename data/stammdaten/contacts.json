@@ -1,0 +1,317 @@
+[
+  {
+    "customer_domain": "brenner-automotive.example",
+    "first_name": "Katrin",
+    "last_name": "Albrecht",
+    "email": "katrin.albrecht@brenner-automotive.example",
+    "job_title": "Leiterin Einkauf",
+    "language": "de",
+    "created_at": "2019-03-12T09:45:00+01:00"
+  },
+  {
+    "customer_domain": "brenner-automotive.example",
+    "first_name": "Jonas",
+    "last_name": "Feldmann",
+    "email": "jonas.feldmann@brenner-automotive.example",
+    "job_title": "Instandhaltung Fertigung",
+    "language": "en",
+    "created_at": "2022-05-17T10:05:00+02:00"
+  },
+  {
+    "customer_domain": "alpenmilch-verarbeitung.example",
+    "first_name": "Gerhard",
+    "last_name": "Brandstätter",
+    "email": "gerhard.brandstaetter@alpenmilch-verarbeitung.example",
+    "job_title": "Betriebsleiter",
+    "language": "de",
+    "created_at": "2020-06-02T10:30:00+02:00"
+  },
+  {
+    "customer_domain": "alpenmilch-verarbeitung.example",
+    "first_name": "Sabrina",
+    "last_name": "Hofer",
+    "email": "sabrina.hofer@alpenmilch-verarbeitung.example",
+    "job_title": "Einkauf",
+    "language": "de",
+    "created_at": "2021-09-13T08:50:00+02:00"
+  },
+  {
+    "customer_domain": "rheinpack.example",
+    "first_name": "Tobias",
+    "last_name": "Lindner",
+    "email": "tobias.lindner@rheinpack.example",
+    "job_title": "Technischer Leiter",
+    "language": "de",
+    "created_at": "2018-11-20T15:00:00+01:00"
+  },
+  {
+    "customer_domain": "rheinpack.example",
+    "first_name": "Anja",
+    "last_name": "Kreuzer",
+    "email": "anja.kreuzer@rheinpack.example",
+    "job_title": "Disposition",
+    "language": "de",
+    "created_at": "2020-02-24T09:40:00+01:00"
+  },
+  {
+    "customer_domain": "metallbau-kessler.example",
+    "first_name": "Walter",
+    "last_name": "Kessler",
+    "email": "walter.kessler@metallbau-kessler.example",
+    "job_title": "Geschäftsführer",
+    "language": "de",
+    "created_at": "2017-05-08T09:15:00+02:00"
+  },
+  {
+    "customer_domain": "metallbau-kessler.example",
+    "first_name": "Petra",
+    "last_name": "Neumann",
+    "email": "petra.neumann@metallbau-kessler.example",
+    "job_title": "Einkauf",
+    "language": "de",
+    "created_at": "2019-01-14T11:00:00+01:00"
+  },
+  {
+    "customer_domain": "kunststofftechnik-vogel.example",
+    "first_name": "Eva",
+    "last_name": "Sandmann",
+    "email": "eva.sandmann@kunststofftechnik-vogel.example",
+    "job_title": "Produktionsleiterin",
+    "language": "de",
+    "created_at": "2021-02-15T11:50:00+01:00"
+  },
+  {
+    "customer_domain": "kunststofftechnik-vogel.example",
+    "first_name": "Ralf",
+    "last_name": "Dietz",
+    "email": "ralf.dietz@kunststofftechnik-vogel.example",
+    "job_title": "Instandhaltung",
+    "language": "de",
+    "created_at": "2023-06-06T14:20:00+02:00"
+  },
+  {
+    "customer_domain": "logistik-nordwind.example",
+    "first_name": "Henrik",
+    "last_name": "Paulsen",
+    "email": "henrik.paulsen@logistik-nordwind.example",
+    "job_title": "Leiter Lager",
+    "language": "de",
+    "created_at": "2022-09-01T09:30:00+02:00"
+  },
+  {
+    "customer_domain": "logistik-nordwind.example",
+    "first_name": "Clara",
+    "last_name": "Behrens",
+    "email": "clara.behrens@logistik-nordwind.example",
+    "job_title": "Einkauf",
+    "language": "en",
+    "created_at": "2024-01-22T10:10:00+01:00"
+  },
+  {
+    "customer_domain": "swissform.example",
+    "first_name": "Reto",
+    "last_name": "Zimmermann",
+    "email": "reto.zimmermann@swissform.example",
+    "job_title": "Leiter Produktion",
+    "language": "de",
+    "created_at": "2020-01-27T15:40:00+01:00"
+  },
+  {
+    "customer_domain": "swissform.example",
+    "first_name": "Nadine",
+    "last_name": "Gasser",
+    "email": "nadine.gasser@swissform.example",
+    "job_title": "Procurement Manager",
+    "language": "en",
+    "created_at": "2022-11-08T13:15:00+01:00"
+  },
+  {
+    "customer_domain": "tiroler-backwaren.example",
+    "first_name": "Martina",
+    "last_name": "Egger",
+    "email": "martina.egger@tiroler-backwaren.example",
+    "job_title": "Einkauf",
+    "language": "de",
+    "created_at": "2023-04-18T11:10:00+02:00"
+  },
+  {
+    "customer_domain": "tiroler-backwaren.example",
+    "first_name": "Stefan",
+    "last_name": "Gruber",
+    "email": "stefan.gruber@tiroler-backwaren.example",
+    "job_title": "Betriebsleiter",
+    "language": "de",
+    "created_at": "2024-03-12T09:05:00+01:00"
+  },
+  {
+    "customer_domain": "zeller-spritzguss.example",
+    "first_name": "Michael",
+    "last_name": "Rothe",
+    "email": "michael.rothe@zeller-spritzguss.example",
+    "job_title": "Werkleiter",
+    "language": "de",
+    "created_at": "2019-08-30T13:55:00+02:00"
+  },
+  {
+    "customer_domain": "zeller-spritzguss.example",
+    "first_name": "Silke",
+    "last_name": "Baumann",
+    "email": "silke.baumann@zeller-spritzguss.example",
+    "job_title": "Einkauf",
+    "language": "de",
+    "created_at": "2021-04-20T10:45:00+02:00"
+  },
+  {
+    "customer_domain": "bergmann-fahrzeugteile.example",
+    "first_name": "Dirk",
+    "last_name": "Hallmann",
+    "email": "dirk.hallmann@bergmann-fahrzeugteile.example",
+    "job_title": "Leiter Instandhaltung",
+    "language": "de",
+    "created_at": "2021-10-11T10:20:00+02:00"
+  },
+  {
+    "customer_domain": "bergmann-fahrzeugteile.example",
+    "first_name": "Yvonne",
+    "last_name": "Kraft",
+    "email": "yvonne.kraft@bergmann-fahrzeugteile.example",
+    "job_title": "Einkauf",
+    "language": "en",
+    "created_at": "2023-02-07T08:55:00+01:00"
+  },
+  {
+    "customer_domain": "helvetia-pack.example",
+    "first_name": "Beat",
+    "last_name": "Annen",
+    "email": "beat.annen@helvetia-pack.example",
+    "job_title": "Betriebsleiter",
+    "language": "de",
+    "created_at": "2022-03-07T16:35:00+01:00"
+  },
+  {
+    "customer_domain": "helvetia-pack.example",
+    "first_name": "Corinne",
+    "last_name": "Walder",
+    "email": "corinne.walder@helvetia-pack.example",
+    "job_title": "Head of Purchasing",
+    "language": "en",
+    "created_at": "2023-10-03T14:40:00+02:00"
+  },
+  {
+    "customer_domain": "donau-lagertechnik.example",
+    "first_name": "Florian",
+    "last_name": "Schober",
+    "email": "florian.schober@donau-lagertechnik.example",
+    "job_title": "Leiter Logistik",
+    "language": "de",
+    "created_at": "2024-02-05T09:00:00+01:00"
+  },
+  {
+    "customer_domain": "donau-lagertechnik.example",
+    "first_name": "Lisa",
+    "last_name": "Pichler",
+    "email": "lisa.pichler@donau-lagertechnik.example",
+    "job_title": "Einkauf",
+    "language": "de",
+    "created_at": "2024-09-17T11:25:00+02:00"
+  },
+  {
+    "customer_domain": "hartmann-metallverarbeitung.example",
+    "first_name": "Bernd",
+    "last_name": "Hartmann",
+    "email": "bernd.hartmann@hartmann-metallverarbeitung.example",
+    "job_title": "Geschäftsführer",
+    "language": "de",
+    "created_at": "2018-04-23T10:45:00+02:00"
+  },
+  {
+    "customer_domain": "hartmann-metallverarbeitung.example",
+    "first_name": "Ines",
+    "last_name": "Falk",
+    "email": "ines.falk@hartmann-metallverarbeitung.example",
+    "job_title": "Einkauf",
+    "language": "de",
+    "created_at": "2020-10-13T09:20:00+02:00"
+  },
+  {
+    "customer_domain": "hartmann-metallbearbeitung.example",
+    "first_name": "Markus",
+    "last_name": "Hartmann",
+    "email": "markus.hartmann@hartmann-metallbearbeitung.example",
+    "job_title": "Geschäftsführer",
+    "language": "de",
+    "created_at": "2025-04-07T11:30:00+02:00"
+  },
+  {
+    "customer_domain": "frischkost-wagner.example",
+    "first_name": "Heike",
+    "last_name": "Wagner",
+    "email": "heike.wagner@frischkost-wagner.example",
+    "job_title": "Geschäftsführerin",
+    "language": "de",
+    "created_at": "2023-11-14T14:30:00+01:00"
+  },
+  {
+    "customer_domain": "frischkost-wagner.example",
+    "first_name": "Oliver",
+    "last_name": "Stein",
+    "email": "oliver.stein@frischkost-wagner.example",
+    "job_title": "Produktionsleiter",
+    "language": "de",
+    "created_at": "2024-05-14T10:35:00+02:00"
+  },
+  {
+    "customer_domain": "eifel-formenbau.example",
+    "first_name": "Thorsten",
+    "last_name": "Brandt",
+    "email": "thorsten.brandt@eifel-formenbau.example",
+    "job_title": "Konstruktion",
+    "language": "de",
+    "created_at": "2025-06-10T10:05:00+02:00"
+  },
+  {
+    "customer_domain": "nova-verpackung.example",
+    "first_name": "Julia",
+    "last_name": "Ostermann",
+    "email": "julia.ostermann@nova-verpackung.example",
+    "job_title": "Leiterin Technik",
+    "language": "de",
+    "created_at": "2025-09-22T10:50:00+02:00"
+  },
+  {
+    "customer_domain": "kroll-maschinenvertrieb.example",
+    "first_name": "Peter",
+    "last_name": "Lenz",
+    "email": "peter.lenz@kroll-maschinenvertrieb.example",
+    "job_title": "Vertrieb",
+    "language": "en",
+    "created_at": "2026-03-16T16:15:00+01:00"
+  },
+  {
+    "customer_domain": "limmat-lebensmittel.example",
+    "first_name": "Andrea",
+    "last_name": "Fehr",
+    "email": "andrea.fehr@limmat-lebensmittel.example",
+    "job_title": "Leiterin Produktion",
+    "language": "en",
+    "created_at": "2026-05-04T09:40:00+02:00"
+  },
+  {
+    "customer_domain": "steiermark-autozulieferer.example",
+    "first_name": "Gabriele",
+    "last_name": "Pammer",
+    "email": "gabriele.pammer@steiermark-autozulieferer.example",
+    "job_title": "Einkauf",
+    "language": "de",
+    "created_at": "2026-08-19T14:10:00+02:00"
+  },
+  {
+    "customer_domain": "wiesental-metallguss.example",
+    "first_name": "Hans-Peter",
+    "last_name": "Moll",
+    "email": "hans-peter.moll@wiesental-metallguss.example",
+    "job_title": "Geschäftsführer",
+    "language": "de",
+    "created_at": "2016-09-12T10:30:00+02:00"
+  }
+]
