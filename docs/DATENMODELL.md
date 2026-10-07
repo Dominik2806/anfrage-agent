@@ -124,32 +124,41 @@ Ein Bezug auf Anfragen, Entwürfe oder Läufe fehlt bewusst. Ihn ergänzt das Fe
 | Aspekt | Festlegung |
 |---|---|
 | Aufruf | Ein einziger Befehl erzeugt die Tabellen, befüllt die Datenbank und schreibt `data/richtlinien/rabatte.md` (F05). |
-| Umsetzung | Python mit psycopg 3. Die Abhängigkeit ist freigegeben; Versionen und Dateiort werden später festgelegt. |
+| Umsetzung | Python mit psycopg 3 (`psycopg[binary]==3.3.6`, festgelegt in `requirements-dev.txt`), Modul `db/seed`. Aufruf: `python -m db.seed`, unter Windows `.\.venv\Scripts\python.exe -m db.seed`. |
 | Wiederholbar | Mehrfaches Ausführen führt zum selben fachlichen Stand. |
 | Natürliche Schlüssel | Das Skript verweist über natürliche Schlüssel (`article_number`, `domain`, `email`), nie über feste IDs. Bewertungsfälle (F23) verweisen ebenfalls darauf. |
-| Löschschutz | Bevor vorhandene Daten gelöscht werden, muss die Umgebungsvariable `SEED_CONFIRM_RESET` gesetzt sein. Ihr Wert muss der Hostname der Zieldatenbank sein (nicht `yes`). Das Skript gibt den Host vor dem Löschen aus und bricht bei Abweichung ab, ohne etwas zu löschen. |
+| Löschschutz | Eine Bestätigung ist nur nötig, wenn die Seed-Tabellen schon existieren (auch leer), bei einer frischen Datenbank nicht. Dann muss die Umgebungsvariable `SEED_CONFIRM_RESET` genau dem Host der Datenbank-URL entsprechen (Groß-/Kleinschreibung egal, ohne Port, ohne Leerzeichen, nicht `yes`). Das Skript gibt vor dem Löschen Host, Datenbank, Schema und die Zeilenzahl je Tabelle aus und bricht bei fehlender oder abweichender Bestätigung ab, ohne etwas zu löschen. Der tatsächlich verbundene Host muss dem Host der URL entsprechen. Der Reset löscht auch später entstandene Zeilen von Agent und Mitarbeitenden (`created_by` `agent` oder `staff`). Gelöscht wird nur mit `DROP TABLE IF EXISTS` für die sechs Tabellen `activities`, `product_fits`, `contacts`, `discount_rules`, `customers`, `products` in dieser Reihenfolge, ohne `CASCADE`, nie mit `DROP SCHEMA`. Abhängige Objekte (z. B. eine View) verhindern das Löschen, dann bleibt alles unverändert. |
 | Atomar | Löschen und Befüllen laufen in einer Transaktion. Bei einem Fehler bleibt der alte Stand erhalten. |
-| Zugangsdaten | Die Datenbank-URL kommt nur aus einer Umgebungsvariable, nie aus dem Repository. `.env.example` enthält nur leere Beispielwerte. |
+| Zugangsdaten | `DATABASE_URL` und `SEED_CONFIRM_RESET` kommen aus Umgebungsvariablen und werden nur in `db/seed/__main__.py` gelesen. Es gibt keine `.env`-Datei und kein dotenv. Der Wert der Datenbank-URL steht nie im Repository, `.env.example` enthält nur die leeren Namen. |
 | Richtlinien | Quelle der Rabattregeln ist die Tabelle `discount_rules`. Das Skript erzeugt daraus `data/richtlinien/rabatte.md` und kennzeichnet die Datei als generiert. Tonalitätsleitfaden, Eskalationsregeln und Signatur liegen als Dateien in `data/richtlinien/`. |
 | Reihenfolge | Zuerst laufen die Konsistenzprüfungen (Abschnitt 5), dann wird geschrieben. Jede Verletzung bricht den Lauf ab. |
+| Rückgabecodes | 0 Erfolg, 1 Datenfehler (Loader, Prüfungen), 2 Abbruch durch Löschschutz oder Umgebung, 3 Verbindungs- oder Datenbankfehler. |
+| Option | `--nur-rabatte` erzeugt nur `data/richtlinien/rabatte.md` aus den JSON-Dateien, ohne Datenbank und ohne `DATABASE_URL`. |
+
+Bekannte Grenzen:
+
+- Die Bestätigung identifiziert den Host, nicht das Projekt. Der Session-Pooler-Host ist je Region geteilt, die Projektkennung steckt im Benutzernamen.
+- Die Prüfung des tatsächlichen Hosts erkennt keine Umleitung auf DNS-Ebene.
+- Scheitert das Schreiben von `rabatte.md` nach erfolgreichem Commit, meldet das Skript Exit 3 mit dem Hinweis, dass die Datenbank befüllt wurde.
 
 ## 5. Konsistenzprüfungen
 
-Diese Prüfungen kann kein CHECK leisten. Sie laufen im Seed-Skript und sind per Test abgesichert. Die Prüfungen 2 und 3 gelten später auch für die Schreib-Tools aus F08.
+Diese Prüfungen kann kein CHECK leisten. Sie laufen im Seed-Skript und sind per Test abgesichert. Die Meldungen nennen Datei, laufende Nummer und Kennzeichen des Eintrags. Die Prüfungen 2 und 3 gelten später auch für die Schreib-Tools aus F08.
 
 | # | Prüfung | Warum kein CHECK |
 |---|---|---|
-| 1 | In `product_fits` hat `product_id` die Kategorie `spare_part` und `fits_product_id` die Kategorie `conveyor` oder `housing`. | Betrifft Zeilen in einer anderen Tabelle. |
-| 2 | Die Domain der E-Mail eines Kontakts entspricht `customers.domain` seines Kunden. | Vergleich über zwei Tabellen. |
-| 3 | `activities.occurred_at` liegt nicht vor `customers.created_at`. Im Seed wird `created_at` der Kunden explizit gesetzt, nicht per `now()`. | Vergleich über zwei Tabellen. |
-| 4 | Alle Artikelbezüge existieren (FK auf `products`). | Der FK sichert die Existenz in `activities` und `product_fits`; Verweise in Texten (Prüfung 5) kennt er nicht. |
-| 5 | Artikelnummern, die in Freitexten der Testdaten vorkommen, existieren im Katalog. | Verweise in Freitext sind für die Datenbank unsichtbar. |
+| 1 | In `product_fits` hat `part` die Kategorie `spare_part` und `fits` die Kategorie `conveyor` oder `housing`. | Betrifft Zeilen in einer anderen Tabelle. |
+| 2 | Die Domain der E-Mail eines Kontakts entspricht `customer_domain` seiner Firma. | Vergleich über zwei Tabellen. |
+| 3 | `occurred_at` einer Aktivität liegt nicht vor `created_at` der Firma (zeitzonenbewusst). Im Seed wird `created_at` der Kunden explizit gesetzt, nicht per `now()`. | Vergleich über zwei Tabellen. |
+| 3b | `created_at` eines Kontakts liegt nicht vor `created_at` der Firma. | Vergleich über zwei Tabellen. |
+| 4 | Verweise lösen auf (`customer_domain`, `contact_email`, `article_number`, `part`, `fits`). Natürliche Schlüssel sind eindeutig (`article_number`, `domain`, `company_name` ohne Beachtung der Groß-/Kleinschreibung, `email`, Geltungsbereich der Rabattregeln, Paar `part` und `fits`), `part` ist nicht `fits`. Der Kontakt einer Aktivität gehört zur Firma der Aktivität. | Der FK sichert die Existenz in der Datenbank; die Verweise in den JSON-Dateien und die Eindeutigkeit der natürlichen Schlüssel prüft das Skript vor dem Schreiben. |
+| 5 | Artikelnummern in Freitexten (Name, Beschreibung und Werte in `technical_data`, Notiz, Betreff, Zusammenfassung, Regeltext) existieren im Katalog. | Verweise in Freitext sind für die Datenbank unsichtbar. |
 
-Dass der Kontakt einer Aktivität zum Kunden der Aktivität gehört, sichert der zusammengesetzte FK (`contact_id`, `customer_id`) ab.
+Dass der Kontakt einer Aktivität zum Kunden der Aktivität gehört, sichert der zusammengesetzte FK (`contact_id`, `customer_id`) ab. Prüfung 4 prüft es schon vor dem Schreiben auf den JSON-Dateien.
 
 ## 6. Tests
 
-Die Tests der Constraints laufen in der CI gegen einen Postgres-Container, der als Dienst im Job `Schema-Tests` des Workflows bereitgestellt wird. Den Workflow ändert nur der Mensch.
+Die Tests der Constraints laufen in der CI gegen einen Postgres-Container, der als Dienst im Job `Schema-Tests` des Workflows bereitgestellt wird. Der Job führt `tests/db` und `tests/seed` aus. Den Workflow ändert nur der Mensch.
 
 Regeln der Tests (`tests/db/`):
 
@@ -157,3 +166,11 @@ Regeln der Tests (`tests/db/`):
 - Fehlt `TEST_DATABASE_URL`, werden lokal nur die Tests mit Datenbank übersprungen. In GitHub Actions bricht der Lauf mit einem Fehler ab, damit die Pipeline nie grün ist, ohne dass die Tests liefen.
 - Der RLS-Test legt eine Rolle an und braucht lokal das Recht `CREATEROLE` (in der CI ist `postgres` Superuser).
 - Jeder Test läuft in einer Transaktion, die zurückgerollt wird. Negative Tests prüfen Fehlerklasse und Constraint-Namen (bei NOT NULL die Spalte).
+
+Regeln der Tests (`tests/seed/`):
+
+- Tests ohne Datenbank (Loader, Prüfungen, Löschschutz, `rabatte.md`) laufen überall.
+- Tests mit Datenbank gelten die gleichen `TEST_DATABASE_URL`-Regeln wie in `tests/db` (nur `localhost`, Port 5432). Die Prüfung `check_test_database_url` wird aus `tests/db/conftest.py` geladen, nicht kopiert.
+- Je Sitzung gibt es ein leeres Schema `test_<zufall>` (ohne `schema.sql`, nie `public`). Jeder Test läuft in einer Transaktion, die zurückgerollt wird; `run()` steckt darin in einem Savepoint.
+- Fehlt `TEST_DATABASE_URL`, ist das in GitHub Actions ein Fehler statt eines Überspringens.
+- Ein Drift-Test prüft, dass `data/richtlinien/rabatte.md` zum erzeugten Text passt. Abhilfe bei Abweichung: `python -m db.seed --nur-rabatte` ausführen und das Ergebnis committen.

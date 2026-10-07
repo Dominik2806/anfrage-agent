@@ -15,6 +15,17 @@ Antwortentwürfe, die ein Mensch freigibt.
 
 **Status:** in Entwicklung, Meilenstein M0
 
+## Datenbank befüllen
+Voraussetzung: Python 3.13 und `pip install -r requirements-dev.txt`.
+
+1. Umgebungsvariable `DATABASE_URL` auf die Datenbank setzen. Der Wert gehört nie ins Repository, die Namen stehen in `.env.example`.
+2. `python -m db.seed` ausführen (unter Windows `.\.venv\Scripts\python.exe -m db.seed`). Das legt die Tabellen an und befüllt sie.
+3. Sind die Tabellen schon vorhanden, setzt man zusätzlich `SEED_CONFIRM_RESET` auf genau den Host der Datenbank.
+   Achtung: Der Reset löscht auch Zeilen, die Agent und Mitarbeitende später angelegt haben.
+
+`python -m db.seed --nur-rabatte` erzeugt nur `data/richtlinien/rabatte.md` und braucht keine Datenbank.
+Einzelheiten: [Datenmodell, Abschnitt 4](docs/DATENMODELL.md).
+
 ## Dokumente
 - [Projektauftrag](docs/AUFTRAG.md)
 - [Entwicklungsprotokoll](AGENT_LOG.md)

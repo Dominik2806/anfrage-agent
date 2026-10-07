@@ -16,6 +16,18 @@ und welche Konsequenz daraus folgte. Neueste Einträge stehen oben.
 
 ## Einträge
 
+### 2026-10-07 · F05 · Fehler in Testdaten, Löschschutz und Tests des Befüllskripts (Code von Claude Code)
+- **Aufgabe:** Befüllskript für die Datenbank mit Stammdaten, Richtlinien und Löschschutz schreiben (F05 Teil 2).
+- **Verhalten des Agenten:** Claude Code schrieb Testdaten, Lader, Konsistenzprüfungen, Löschschutz, Schreiber und Tests, jede Datei erst nach meiner Freigabe.
+- **Fehler:**
+  - Testdaten: Ein Aktivitätseintrag enthielt noch eine falsche Artikelnummer (FB-1008-H1) und einen Satz zur Systemlogik. Das README der Stammdaten behauptete, die Daten enthielten keine Hinweise für den Innendienst, obwohl ein Eintrag und die Hartmann-Notizen solche Hinweise enthielten.
+  - Löschschutz: Die Fehlermeldung gab den tatsächlich verwendeten Host aus. Bei einer URL mit nicht kodiertem @ im Passwort hätte das Teile des Passworts in die Ausgabe gebracht.
+  - Tests: Im erwarteten Tupel fehlte contact_email. Ein Rest `if False else None` stand im Code. Ein Test für rabatte.md bewies nicht, dass ein Abbruch durch den Löschschutz die Datei unverändert lässt. Ein Test suchte den Text "1 Zeilen" und hätte auch bei "21 Zeilen" bestanden.
+- **Entdeckung:** Der KI-Assistent im Chat (nicht Claude Code) fand die Punkte beim Gegenlesen der Dateien vor meiner Freigabe, die Daten zusätzlich mit einem Prüfskript, das ich ausführte. code-reviewer und security-reviewer laufen erst vor dem Pull Request, ihre Befunde trage ich nach.
+- **Korrektur:** Daten und README korrigiert, Meldung ohne Host, mehrere @ in der URL werden abgelehnt, ein Vergleichstest gegen den libpq-Parser, die betroffenen Tests korrigiert bzw. neu geschrieben.
+- **Verifikation (durch den KI-Assistenten im Chat, nicht durch Claude Code):** Im Sandbox-Lauf des Assistenten liefen 565 Tests (tests/db und tests/seed) gegen einen lokalen Postgres 16, alle bestanden. Ein Lauf von `python -m db.seed` gegen eine leere Datenbank befüllte alle sechs Tabellen. Ein zweiter Lauf ohne SEED_CONFIRM_RESET und einer mit falschem Wert brachen mit Exit 2 ab, ohne etwas zu löschen. Mit dem Host als Wert wurde neu aufgebaut. Der erste Lauf in der CI mit Postgres 17 steht noch aus.
+- **Konsequenz:** Meldungen des Skripts geben nie Teile der Verbindung aus, per Test abgesichert. Tests, die einen Schutz belegen sollen, müssen den Fehlschlag selbst nachweisen und nicht nur das Ergebnis.
+
 ### 2026-10-07 · F05 · Fehler in eigenen Datenbank-Tests und im Schema (Code von Claude Code, ein Fehler vom KI-Assistenten im Chat)
 - **Aufgabe:** Tests für das Datenbankschema und die Testdaten schreiben (F05, tests/db/).
 - **Verhalten des Agenten:** Ich schrieb die ersten Tests, die Beziehungen, Einschränkungen (CHECK, UNIQUE)
