@@ -19,6 +19,7 @@ Antwortentwürfe, die ein Mensch freigibt.
 Voraussetzung: Python 3.13 und `pip install -r requirements-dev.txt`.
 
 1. Umgebungsvariable `DATABASE_URL` auf die Datenbank setzen. Der Wert gehört nie ins Repository, die Namen stehen in `.env.example`.
+   Für jeden Host außer `localhost` muss die URL den Parameter `sslmode=require` enthalten (oder `verify-ca`, `verify-full`). `require` verschlüsselt, prüft aber das Serverzertifikat nicht.
 2. `python -m db.seed` ausführen (unter Windows `.\.venv\Scripts\python.exe -m db.seed`). Das legt die Tabellen an und befüllt sie.
 3. Sind die Tabellen schon vorhanden, setzt man zusätzlich `SEED_CONFIRM_RESET` auf genau den Host der Datenbank.
    Achtung: Der Reset löscht auch Zeilen, die Agent und Mitarbeitende später angelegt haben.

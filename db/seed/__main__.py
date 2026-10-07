@@ -17,7 +17,7 @@ from collections.abc import Mapping, Sequence
 
 import psycopg
 
-from .guard import SeedGuardError, parse_target
+from .guard import SeedGuardError, parse_target, require_secure_transport
 from .loader import DEFAULT_DATA_DIR, SeedDataError
 from .rabatte import render_rabatte, write_rabatte
 from .writer import (
@@ -104,6 +104,7 @@ def main(argv: Sequence[str] | None = None, environ: Mapping[str, str] | None = 
     target = None
     try:
         target = parse_target(url, env)
+        require_secure_transport(url or "", target)
     except SeedGuardError as exc:
         _error(str(exc))
         return 2

@@ -14,11 +14,26 @@ Parametern und Umgebungsvariablen. Ausnahmen werden außerhalb von except-Blöck
 keine Meldung einer Bibliotheksausnahme als Kontext mitläuft.
 """
 
+import re
 from collections.abc import Mapping
 from dataclasses import dataclass
 from urllib.parse import parse_qs, unquote, urlsplit
 
 CONFIRM_VARIABLE = "SEED_CONFIRM_RESET"
+
+# Erlaubter Datenbankname (nach dem Dekodieren): schließt Trennzeichen der URL (@, /, :, ?, #),
+# Leerzeichen und Steuerzeichen aus, damit kein Teil der URL im Namen landen kann
+DBNAME_PATTERN = re.compile(r"[A-Za-z0-9_.\-]{1,63}")
+
+# Hosts, für die kein TLS verlangt wird (dieselben wie in den Datenbank-Tests)
+LOCAL_HOSTS = ("localhost", "127.0.0.1", "::1")
+# Werte von sslmode, die eine verschlüsselte Verbindung erzwingen (require prüft das
+# Serverzertifikat nicht, verify-ca und verify-full prüfen es)
+SECURE_SSLMODES = ("require", "verify-ca", "verify-full")
+TLS_MESSAGE = (
+    "Für diesen Host muss DATABASE_URL den Parameter sslmode mit require, verify-ca oder "
+    "verify-full enthalten."
+)
 
 # URL-Parameter, die den geprüften Host überstimmen würden
 OVERRIDING_PARAMS = ("host", "hostaddr", "service")
@@ -117,6 +132,11 @@ def _parse(database_url: str | None, environ: Mapping[str, str]) -> Target | str
         return _UNREADABLE
     if not dbname:
         return "DATABASE_URL enthält keinen Datenbanknamen."
+    if not DBNAME_PATTERN.fullmatch(dbname):
+        return (
+            "DATABASE_URL enthält einen ungültigen Datenbanknamen (erlaubt: Buchstaben, "
+            "Ziffern, _, . und -, höchstens 63 Zeichen)."
+        )
     set_names = [name for name in OVERRIDING_ENV if name in environ]
     if set_names:
         return (
@@ -132,15 +152,36 @@ def parse_target(database_url: str | None, environ: Mapping[str, str]) -> Target
     Abgelehnt werden: fehlende oder leere URL, anderes oder groß geschriebenes Schema, andere
     Zeichen als sichtbares ASCII, # in der URL, mehr als ein @, mehrere Hosts, kein Host
     (Unix-Socket), Prozentkodierung im Host, unlesbarer Port, die Parameter host, hostaddr,
-    service und dbname, ein fehlender Datenbankname sowie gesetzte Werte PGHOSTADDR oder
-    PGSERVICE in environ. Wo urlsplit und libpq die URL verschieden zerlegen würden, wird die
-    URL abgelehnt statt umgerechnet. Der Host wird kleingeschrieben, eine IPv6-Adresse ohne
-    eckige Klammern geliefert.
+    service und dbname, ein fehlender oder ungültiger Datenbankname (siehe DBNAME_PATTERN)
+    sowie gesetzte Werte PGHOSTADDR oder PGSERVICE in environ. Wo urlsplit und libpq die URL
+    verschieden zerlegen würden, wird die URL abgelehnt statt umgerechnet. Der Host wird
+    kleingeschrieben, eine IPv6-Adresse ohne eckige Klammern geliefert.
     """
     result = _parse(database_url, environ)
     if isinstance(result, str):
         raise SeedGuardError(result)
     return result
+
+
+def require_secure_transport(database_url: str, target: Target) -> None:
+    """Verlangt für Hosts außer LOCAL_HOSTS den URL-Parameter sslmode mit einem sicheren Wert.
+
+    Erlaubt sind require, verify-ca und verify-full, genau einmal und genau so geschrieben.
+    Ohne die Angabe nimmt libpq prefer: Das fällt auf eine unverschlüsselte Verbindung zurück,
+    wenn jemand die Verschlüsselung stört. require verschlüsselt, prüft aber das Serverzertifikat
+    nicht, schützt also nicht vor einem Angreifer mit eigenem Zertifikat. verify-ca und
+    verify-full prüfen es, brauchen aber ein Stammzertifikat. Setzt voraus, dass parse_target
+    die URL schon angenommen hat. Wirft SeedGuardError mit fester Meldung, ohne die URL.
+    """
+    if target.host in LOCAL_HOSTS:
+        return
+    modes: list[str] = []
+    try:
+        modes = parse_qs(urlsplit(database_url).query, keep_blank_values=True).get("sslmode", [])
+    except ValueError:
+        modes = []
+    if len(modes) != 1 or modes[0] not in SECURE_SSLMODES:
+        raise SeedGuardError(TLS_MESSAGE)
 
 
 def verify_effective_host(target: Target, effective_host: str | None) -> None:

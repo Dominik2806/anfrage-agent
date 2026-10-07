@@ -28,7 +28,7 @@ import pytest
 from db.seed import __main__ as main_module
 from db.seed import rabatte
 from db.seed import writer as writer_module
-from db.seed.guard import RESET_TABLES, SeedGuardError, Target, parse_target
+from db.seed.guard import RESET_TABLES, TLS_MESSAGE, SeedGuardError, Target, parse_target
 from db.seed.loader import SeedDataError
 from db.seed.rabatte import GENERATED_LINE, render_rabatte, write_rabatte
 
@@ -39,7 +39,7 @@ SCHEMA_SQL = ROOT / "db" / "schema.sql"
 RABATTE_PATH = ROOT / "data" / "richtlinien" / "rabatte.md"
 
 TARGET = Target(host="db.example.com", dbname="postgres")
-URL = "postgresql://u:p@db.example.com/postgres"
+URL = "postgresql://u:p@db.example.com/postgres?sslmode=require"
 
 
 @pytest.fixture
@@ -282,6 +282,50 @@ def test_main_with_overriding_environment_ends_with_code_2(seed_main, monkeypatc
     environ = {"DATABASE_URL": URL, "PGHOSTADDR": "192.0.2.1"}
     assert seed_main.main([], environ) == 2
     assert "PGHOSTADDR" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize(
+    "suffix",
+    [
+        "",
+        "?sslmode=disable",
+        "?sslmode=prefer",
+        "?sslmode=REQUIRE",
+        "?sslmode=require&sslmode=disable",
+    ],
+)
+def test_main_remote_url_without_secure_sslmode_ends_with_code_2(
+    seed_main, monkeypatch, capsys, suffix
+):
+    monkeypatch.setattr(seed_main.psycopg, "connect", _fail_connect)
+    url = "postgresql://u:p@db.example.com/postgres" + suffix
+    assert seed_main.main([], {"DATABASE_URL": url}) == 2
+    captured = capsys.readouterr()
+    assert captured.err == TLS_MESSAGE + "\n"
+    assert captured.out == ""
+
+
+@pytest.mark.parametrize("mode", ["require", "verify-ca", "verify-full"])
+def test_main_remote_url_with_secure_sslmode_goes_on_to_connect(
+    seed_main, monkeypatch, capsys, mode
+):
+    def refuse(*args, **kwargs):
+        raise RuntimeError("x")
+
+    monkeypatch.setattr(seed_main.psycopg, "connect", refuse)
+    url = f"postgresql://u:p@db.example.com/postgres?sslmode={mode}"
+    assert seed_main.main([], {"DATABASE_URL": url}) == 3
+    assert capsys.readouterr().err == "Verbindung zur Datenbank fehlgeschlagen. (RuntimeError)\n"
+
+
+def test_main_local_url_needs_no_sslmode(seed_main, monkeypatch, capsys):
+    def refuse(*args, **kwargs):
+        raise RuntimeError("x")
+
+    monkeypatch.setattr(seed_main.psycopg, "connect", refuse)
+    url = "postgresql://u:p@localhost:5432/postgres"
+    assert seed_main.main([], {"DATABASE_URL": url}) == 3
+    assert capsys.readouterr().err == "Verbindung zur Datenbank fehlgeschlagen. (RuntimeError)\n"
 
 
 def test_main_data_error_ends_with_code_1_before_connecting(

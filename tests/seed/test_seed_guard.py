@@ -24,6 +24,7 @@ from db.seed.guard import (
     describe_target,
     drop_statements,
     parse_target,
+    require_secure_transport,
     verify_effective_host,
 )
 
@@ -32,6 +33,7 @@ ENCODED = "Geheim%23123"
 USER = "benutzer_x"
 BASE = f"postgresql://{USER}:{ENCODED}@Db.Example.com:5432/postgres"
 TARGET = Target(host="db.example.com", dbname="postgres")
+REMOTE_URL = "postgresql://u:p@db.example.com/postgres"
 EXISTING = {"products": 40, "customers": 21}
 
 EMPTY = "DATABASE_URL fehlt oder ist leer."
@@ -44,6 +46,14 @@ HASH = (
 COMMA = "DATABASE_URL darf nur einen Host enthalten (kein Komma in der Adresse)."
 NO_HOST = "DATABASE_URL enthält keinen Host (Unix-Sockets sind nicht erlaubt)."
 NO_DBNAME = "DATABASE_URL enthält keinen Datenbanknamen."
+INVALID_DBNAME = (
+    "DATABASE_URL enthält einen ungültigen Datenbanknamen (erlaubt: Buchstaben, Ziffern, "
+    "_, . und -, höchstens 63 Zeichen)."
+)
+NO_TLS = (
+    "Für diesen Host muss DATABASE_URL den Parameter sslmode mit require, verify-ca oder "
+    "verify-full enthalten."
+)
 DBNAME_PARAM = (
     "DATABASE_URL darf den Parameter dbname nicht enthalten: "
     "Er würde die angezeigte Datenbank überstimmen."
@@ -97,7 +107,9 @@ VALID_CASES = [
     ("postgresql://db.example.com/postgres", "db.example.com", "postgres"),
     ("postgres://db.example.com/postgres", "db.example.com", "postgres"),
     ("postgresql://DB.EXAMPLE.COM/postgres", "db.example.com", "postgres"),
-    ("postgresql://db.example.com/my%20db", "db.example.com", "my db"),
+    ("postgresql://db.example.com/my%5Fdb", "db.example.com", "my_db"),
+    ("postgresql://db.example.com/a.b-c", "db.example.com", "a.b-c"),
+    ("postgresql://db.example.com/" + "a" * 63, "db.example.com", "a" * 63),
 ]
 VALID_IDS = [
     "mit-passwort",
@@ -113,6 +125,8 @@ VALID_IDS = [
     "schema-postgres",
     "grossschreibung",
     "datenbankname-dekodiert",
+    "datenbankname-mit-punkt-und-strich",
+    "datenbankname-63-zeichen",
 ]
 
 
@@ -172,6 +186,21 @@ PARSE_ERRORS = [
     ("nicht-ascii-im-host", "postgresql://db.exämple.com/postgres", {}, NON_PRINTABLE),
     ("kaputte-ipv6-klammer", "postgresql://u:p@[::1/postgres", {}, UNREADABLE),
     ("datenbankname-kein-utf8", "postgresql://db.example.com/%ff", {}, UNREADABLE),
+    (
+        "datenbankname-mit-at-und-slash",
+        "postgresql://u:12/ss@db.example.com/db",
+        {},
+        INVALID_DBNAME,
+    ),
+    ("datenbankname-zeilenumbruch", "postgresql://u:p@db.example.com/db%0A", {}, INVALID_DBNAME),
+    ("datenbankname-escape", "postgresql://u:p@db.example.com/db%1B%5B31m", {}, INVALID_DBNAME),
+    ("datenbankname-leerzeichen", "postgresql://u:p@db.example.com/my%20db", {}, INVALID_DBNAME),
+    ("datenbankname-schraegstrich", "postgresql://u:p@db.example.com/a%2Fb", {}, INVALID_DBNAME),
+    ("datenbankname-at", "postgresql://u:p@db.example.com/a%40b", {}, INVALID_DBNAME),
+    ("datenbankname-doppelpunkt", "postgresql://u:p@db.example.com/a%3Ab", {}, INVALID_DBNAME),
+    ("datenbankname-fragezeichen", "postgresql://u:p@db.example.com/a%3Fb", {}, INVALID_DBNAME),
+    ("datenbankname-umlaut", "postgresql://u:p@db.example.com/d%C3%A4", {}, INVALID_DBNAME),
+    ("datenbankname-zu-lang", "postgresql://u:p@db.example.com/" + "a" * 64, {}, INVALID_DBNAME),
     ("mehrere-at", "postgresql://u:p@ss@db.example.com/postgres", {}, MULTI_AT),
     ("mehrere-at-leere-anmeldung", "postgresql://@@db.example.com/postgres", {}, MULTI_AT),
     ("at-vor-parameter", "postgresql://u:p@db.example.com?x=y@z/postgres", {}, MULTI_AT),
@@ -242,6 +271,9 @@ SECRET_CASES = [
     ("at-nach-fragezeichen", f"postgresql://{USER}?x={ENCODED}@db.example.com/postgres", {}),
     ("host-prozentkodiert", f"postgresql://{USER}:{ENCODED}@lo%63alhost/postgres", {}),
     ("datenbankname-kein-utf8", f"postgresql://{USER}:{ENCODED}@db.example.com/%ff", {}),
+    ("datenbankname-leerzeichen", f"postgresql://{USER}:{ENCODED}@db.example.com/my%20db", {}),
+    ("datenbankname-zeilenumbruch", f"postgresql://{USER}:{ENCODED}@db.example.com/db%0A", {}),
+    ("datenbankname-passwortrest", f"postgresql://{USER}:12/{ENCODED}@db.example.com/db", {}),
     ("kaputte-ipv6-klammer", f"postgresql://{USER}:{ENCODED}@[::1/postgres", {}),
     ("port-kein-zahl", f"postgresql://{USER}:{ENCODED}@db.example.com:abc/postgres", {}),
     ("raute-roh", f"postgresql://{USER}:{PASSWORD}@db.example.com/postgres", {}),
@@ -637,6 +669,9 @@ def _all_messages() -> list[str]:
     with pytest.raises(SeedGuardError) as excinfo:
         check_reset_confirmation(TARGET, None, EXISTING)
     messages.append(str(excinfo.value))
+    with pytest.raises(SeedGuardError) as excinfo:
+        require_secure_transport(REMOTE_URL, TARGET)
+    messages.append(str(excinfo.value))
     messages.append(describe_target(TARGET, "public", EXISTING))
     messages.append(describe_target(TARGET, "public", {}))
     return messages
@@ -646,3 +681,123 @@ def test_messages_use_only_german_and_ascii_characters():
     for message in _all_messages():
         assert ALLOWED.fullmatch(message), message
         message.encode("cp1252")
+
+
+# Datenbankname: genau die erlaubten Zeichen
+
+
+@pytest.mark.parametrize("dbname", ["postgres", "a", "A_b.c-d", "db1", "a" * 63])
+def test_valid_database_names_are_accepted(dbname):
+    assert parse_target(f"postgresql://u:p@db.example.com/{dbname}", {}).dbname == dbname
+
+
+def test_url_with_slash_in_the_password_cannot_leak_a_password_rest_into_the_name():
+    # Host und Datenbankname dieser URL zerlegt auch libpq so, ein Passwort mit / ist also
+    # nicht prozentkodiert. Der Name enthält @ und /, deshalb lehnt parse_target die URL ab.
+    url = f"postgresql://{USER}:12/{ENCODED}@db.example.com/db"
+    with pytest.raises(SeedGuardError) as excinfo:
+        parse_target(url, {})
+    assert str(excinfo.value) == INVALID_DBNAME
+    _assert_no_secrets(excinfo.value, url)
+
+
+# TLS für alle Hosts außer localhost
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "postgresql://u:p@localhost:5432/postgres",
+        "postgresql://u:p@LOCALHOST/postgres",
+        "postgresql://u:p@127.0.0.1/postgres",
+        "postgresql://u:p@[::1]:5432/postgres",
+        "postgresql://u:p@localhost/postgres?sslmode=disable",
+    ],
+)
+def test_local_hosts_need_no_sslmode(url):
+    assert require_secure_transport(url, parse_target(url, {})) is None
+
+
+@pytest.mark.parametrize("mode", ["require", "verify-ca", "verify-full"])
+def test_remote_host_with_a_secure_sslmode_is_accepted(mode):
+    url = f"{REMOTE_URL}?sslmode={mode}"
+    assert require_secure_transport(url, parse_target(url, {})) is None
+
+
+@pytest.mark.parametrize(
+    "suffix",
+    [
+        "?connect_timeout=5&sslmode=require",
+        "?sslmode=require&connect_timeout=5",
+        "?%73slmode=require",
+    ],
+)
+def test_sslmode_may_stand_among_other_parameters(suffix):
+    url = REMOTE_URL + suffix
+    assert require_secure_transport(url, parse_target(url, {})) is None
+
+
+@pytest.mark.parametrize(
+    "suffix",
+    [
+        "",
+        "?",
+        "?sslmode=",
+        "?sslmode=disable",
+        "?sslmode=allow",
+        "?sslmode=prefer",
+        "?sslmode=verify",
+        "?sslmode=REQUIRE",
+        "?sslmode=Require",
+        "?sslmode=require%20",
+        "?sslmode=require&sslmode=require",
+        "?sslmode=require&sslmode=disable",
+        "?sslmode=disable&sslmode=require",
+        "?xsslmode=require",
+        "?sslmode2=require",
+        "?SSLMODE=require",
+        "?options=sslmode%3Drequire",
+        "?connect_timeout=5",
+        "?sslrootcert=system",
+    ],
+)
+def test_remote_host_without_a_secure_sslmode_is_rejected(suffix):
+    url = REMOTE_URL + suffix
+    target = parse_target(url, {})
+    with pytest.raises(SeedGuardError) as excinfo:
+        require_secure_transport(url, target)
+    assert str(excinfo.value) == NO_TLS
+
+
+@pytest.mark.parametrize(
+    "host",
+    [
+        "192.0.2.10",
+        "localhost.example.com",
+        "127.0.0.1.example.com",
+        "db.localhost.example",
+        "[2001:db8::1]",
+    ],
+)
+def test_hosts_that_only_look_local_need_sslmode(host):
+    url = f"postgresql://u:p@{host}/postgres"
+    target = parse_target(url, {})
+    with pytest.raises(SeedGuardError) as excinfo:
+        require_secure_transport(url, target)
+    assert str(excinfo.value) == NO_TLS
+
+
+def test_tls_error_never_contains_secrets():
+    url = f"postgresql://{USER}:{ENCODED}@db.example.com/postgres?sslmode=disable"
+    with pytest.raises(SeedGuardError) as excinfo:
+        require_secure_transport(url, parse_target(url, {}))
+    assert str(excinfo.value) == NO_TLS
+    _assert_no_secrets(excinfo.value, url)
+
+
+def test_tls_check_uses_the_host_of_the_target_not_a_text_search():
+    # sslmode in einem anderen Teil der URL (Benutzer, Passwort, Datenbankname) zählt nicht
+    url = "postgresql://sslmode=require:p@db.example.com/sslmode_require"
+    with pytest.raises(SeedGuardError) as excinfo:
+        require_secure_transport(url, parse_target(url, {}))
+    assert str(excinfo.value) == NO_TLS
