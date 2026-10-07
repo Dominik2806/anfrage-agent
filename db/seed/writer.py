@@ -4,14 +4,17 @@ run() lädt und prüft die Daten, prüft den Löschschutz, löscht die sechs See
 mit db/schema.sql neu an und füllt sie, alles in EINER Transaktion. Danach (und nur dann) wird
 data/richtlinien/rabatte.md erzeugt.
 
-Die Verbindung muss im Autocommit-Modus laufen: Dann ist conn.transaction() eine echte
-Transaktion mit Commit. In den Tests läuft run() unter einer äußeren Transaktion, dort wird
-daraus ein Savepoint. Es gibt nie conn.commit().
+Die Verbindung muss im Autocommit-Modus laufen (conn.autocommit), sonst bricht run() ab: Nur
+dann ist conn.transaction() eine echte Transaktion mit Commit. Steckt die Verbindung schon in
+einer äußeren Transaktion (so laufen die Tests), wird daraus ein Savepoint, und die äußere
+Transaktion entscheidet. Es gibt nie conn.commit().
 
 Fehler der Datenbank werden als feste deutsche Meldung gemeldet: Klassenname der Ausnahme,
 SQLSTATE und Name des Constraints. Der Text der Bibliotheksmeldung und die URL kommen nie vor.
 Die Meldung wird außerhalb des except-Blocks geworfen, damit kein Kontext mit Bibliothekstext
-mitläuft. SeedGuardError und SeedDataError werden unverändert durchgereicht.
+mitläuft. SeedGuardError und SeedDataError werden unverändert durchgereicht. Bricht die
+Verbindung ab (OperationalError ohne SQLSTATE oder mit SQLSTATE der Klasse 08), kann der Server
+das COMMIT schon ausgeführt haben: Dann sagt die Meldung, dass der Zustand ungewiss ist.
 """
 
 import json
@@ -45,6 +48,9 @@ RABATTE_FILENAME = "rabatte.md"
 AUTOCOMMIT_MESSAGE = "Die Verbindung muss im Autocommit-Modus laufen."
 NO_SCHEMA_MESSAGE = "Die Verbindung hat kein aktuelles Schema."
 DEPENDENT_MESSAGE = "Abhängige Objekte verhindern das Löschen. Es wurde nichts verändert."
+UNCERTAIN_MESSAGE = (
+    "Die Verbindung wurde unterbrochen. Der Zustand der Datenbank ist ungewiss, bitte prüfen."
+)
 
 _SAFE_NAME = re.compile(r"[A-Za-z0-9_]{1,63}")
 _SQLSTATE = re.compile(r"[0-9A-Z]{5}")
@@ -93,6 +99,8 @@ class _Failure:
     kind: str
     sqlstate: str | None = None
     constraint: str | None = None
+    # Verbindungsfehler: Der Server kann das COMMIT schon ausgeführt haben
+    uncertain: bool = False
 
 
 def _failure_from(exc: BaseException) -> _Failure:
@@ -102,14 +110,21 @@ def _failure_from(exc: BaseException) -> _Failure:
         kind = "Exception"
     sqlstate = None
     constraint = None
+    uncertain = False
     if isinstance(exc, psycopg.Error):
         raw_state = exc.sqlstate
         if isinstance(raw_state, str) and _SQLSTATE.fullmatch(raw_state):
             sqlstate = raw_state
-        raw_name = exc.diag.constraint_name
+        try:
+            raw_name = exc.diag.constraint_name
+        except Exception:
+            raw_name = None
         if isinstance(raw_name, str) and _SAFE_NAME.fullmatch(raw_name):
             constraint = raw_name
-    return _Failure(kind, sqlstate, constraint)
+        uncertain = isinstance(exc, psycopg.OperationalError) and (
+            sqlstate is None or sqlstate.startswith("08")
+        )
+    return _Failure(kind, sqlstate, constraint, uncertain)
 
 
 def _guarded[T](action: Callable[[], T]) -> tuple[T | None, _Failure | None]:
@@ -375,12 +390,6 @@ def _read_schema_sql(path: Path) -> str:
     raise SeedWriteError(f"db/schema.sql konnte nicht gelesen werden ({failure}).")
 
 
-def _in_transaction_or_autocommit(conn: psycopg.Connection) -> bool:
-    if conn.autocommit:
-        return True
-    return conn.info.transaction_status != psycopg.pq.TransactionStatus.IDLE
-
-
 def run(
     conn: psycopg.Connection,
     target: Target,
@@ -398,7 +407,7 @@ def run(
     """
     data = load_checked_data(data_dir)
     schema_sql = _read_schema_sql(schema_sql_path)
-    if not _in_transaction_or_autocommit(conn):
+    if not conn.autocommit:
         raise SeedWriteError(AUTOCOMMIT_MESSAGE)
     verify_effective_host(target, conn.info.host)
 
@@ -417,6 +426,8 @@ def run(
     counts, failure = _guarded(lambda: _write(conn, schema, schema_sql, data))
     if failure is not None or counts is None:
         failure = failure or _Failure("Fehler")
+        if failure.uncertain:
+            raise SeedWriteError(UNCERTAIN_MESSAGE)
         if failure.sqlstate == "2BP01":
             raise SeedWriteError(DEPENDENT_MESSAGE)
         raise SeedWriteError(

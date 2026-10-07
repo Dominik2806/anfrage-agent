@@ -21,7 +21,9 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+import psycopg
 import pytest
+from psycopg import sql
 
 if TYPE_CHECKING:
     from db.seed.loader import SeedData
@@ -112,7 +114,6 @@ def exploding_conn() -> ExplodingConnection:
 @pytest.fixture(scope="session")
 def seed_support() -> Any:
     """Die Hilfen aus tests/db/conftest.py (URL-Prüfung), per Dateipfad geladen, nicht kopiert."""
-    pytest.importorskip("psycopg")
     spec = importlib.util.spec_from_file_location("seed_tests_db_support", DB_CONFTEST)
     assert spec is not None and spec.loader is not None
     module = importlib.util.module_from_spec(spec)
@@ -141,9 +142,6 @@ def seed_db_url(seed_support: Any) -> str:
 @pytest.fixture(scope="session")
 def seed_schema(seed_db_url: str) -> Any:
     """Ein leeres Schema test_<zufall> (ohne schema.sql), am Ende gelöscht, nie public."""
-    import psycopg
-    from psycopg import sql
-
     name = f"test_{uuid.uuid4().hex[:12]}"
     assert name != "public" and name.startswith("test_")
     with psycopg.connect(seed_db_url, autocommit=True) as admin:
@@ -158,13 +156,14 @@ def seed_schema(seed_db_url: str) -> Any:
 def seed_conn(seed_db_url: str, seed_schema: str) -> Any:
     """Verbindung mit search_path auf das leere Testschema in einer äußeren Transaktion.
 
-    Alles, auch das Neuanlegen der Tabellen, wird am Ende des Tests zurückgerollt. Die Funktion
-    run() steckt darin in einem Savepoint.
+    Die Verbindung läuft im Autocommit-Modus (das verlangt run()), die äußere Transaktion
+    kommt von conn.transaction(force_rollback=True). Alles, auch das Neuanlegen der Tabellen,
+    wird am Ende des Tests zurückgerollt. Die Funktion run() steckt darin in einem Savepoint.
     """
-    import psycopg
-
     with (
-        psycopg.connect(seed_db_url, options=f"-csearch_path={seed_schema}") as conn,
+        psycopg.connect(
+            seed_db_url, autocommit=True, options=f"-csearch_path={seed_schema}"
+        ) as conn,
         conn.transaction(force_rollback=True),
     ):
         yield conn
@@ -183,9 +182,6 @@ def recorded_conn(seed_db_url: str, seed_schema: str) -> Any:
 
     Gibt (Verbindung, statements) zurück. Texte aus sql-Objekten werden über as_string gerendert.
     """
-    import psycopg
-    from psycopg import sql
-
     statements: list[str] = []
 
     def render(query: Any, cursor: Any) -> str:
@@ -204,8 +200,39 @@ def recorded_conn(seed_db_url: str, seed_schema: str) -> Any:
 
     with (
         psycopg.connect(
-            seed_db_url, options=f"-csearch_path={seed_schema}", cursor_factory=RecordingCursor
+            seed_db_url,
+            autocommit=True,
+            options=f"-csearch_path={seed_schema}",
+            cursor_factory=RecordingCursor,
         ) as conn,
         conn.transaction(force_rollback=True),
     ):
         yield conn, statements
+
+
+class AutocommitDatabase:
+    """Ein eigenes Testschema mit echten Commits, für Tests des Produktionspfads."""
+
+    def __init__(self, url: str, schema: str) -> None:
+        self.url = url
+        self.schema = schema
+
+    def connect(self) -> Any:
+        """Neue Verbindung im Autocommit-Modus mit search_path auf das eigene Testschema."""
+        return psycopg.connect(self.url, autocommit=True, options=f"-csearch_path={self.schema}")
+
+
+@pytest.fixture
+def autocommit_db(seed_db_url: str) -> Any:
+    """Eigenes Schema test_<zufall> je Test, ohne Rollback: Hier wird wirklich committet.
+
+    Aufgeräumt wird mit DROP SCHEMA ... CASCADE, aber nur für dieses selbst angelegte Schema.
+    """
+    name = f"test_{uuid.uuid4().hex[:12]}"
+    assert name != "public" and name.startswith("test_")
+    with psycopg.connect(seed_db_url, autocommit=True) as admin:
+        admin.execute(sql.SQL("CREATE SCHEMA {}").format(sql.Identifier(name)))
+        try:
+            yield AutocommitDatabase(seed_db_url, name)
+        finally:
+            admin.execute(sql.SQL("DROP SCHEMA {} CASCADE").format(sql.Identifier(name)))

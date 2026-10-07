@@ -11,7 +11,9 @@ import traceback
 from dataclasses import FrozenInstanceError
 from pathlib import Path
 
+import psycopg
 import pytest
+from psycopg import conninfo
 
 from db.seed import guard
 from db.seed.guard import (
@@ -559,9 +561,7 @@ LIBPQ_URLS = [case[0] for case in VALID_CASES] + [
 
 @pytest.fixture
 def libpq():
-    """Die Module psycopg und psycopg.conninfo. Fehlt psycopg, wird der Test übersprungen."""
-    psycopg = pytest.importorskip("psycopg")
-    conninfo = pytest.importorskip("psycopg.conninfo")
+    """Die Module psycopg und psycopg.conninfo (psycopg steht in requirements-dev.txt)."""
     return psycopg, conninfo
 
 

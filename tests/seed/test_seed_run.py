@@ -22,9 +22,12 @@ from pathlib import Path
 from types import SimpleNamespace
 from urllib.parse import quote
 
+import psycopg
 import pytest
 
+from db.seed import __main__ as main_module
 from db.seed import rabatte
+from db.seed import writer as writer_module
 from db.seed.guard import RESET_TABLES, SeedGuardError, Target, parse_target
 from db.seed.loader import SeedDataError
 from db.seed.rabatte import GENERATED_LINE, render_rabatte, write_rabatte
@@ -41,12 +44,12 @@ URL = "postgresql://u:p@db.example.com/postgres"
 
 @pytest.fixture
 def writer():
-    return pytest.importorskip("db.seed.writer")
+    return writer_module
 
 
 @pytest.fixture
 def seed_main():
-    return pytest.importorskip("db.seed.__main__")
+    return main_module
 
 
 # json_dumps_exact
@@ -225,13 +228,22 @@ def test_missing_schema_file_is_reported_without_touching_the_connection(
     assert excinfo.value.__context__ is None
 
 
-def test_connection_without_autocommit_and_transaction_is_rejected(writer, tmp_path):
-    psycopg = pytest.importorskip("psycopg")
-    idle = psycopg.pq.TransactionStatus.IDLE
-    conn = SimpleNamespace(autocommit=False, info=SimpleNamespace(transaction_status=idle))
+@pytest.mark.parametrize("in_transaction", [False, True])
+def test_connection_without_autocommit_is_rejected(writer, tmp_path, in_transaction):
+    # Auch eine Verbindung, die schon in einer Transaktion steckt, wird abgelehnt: Ohne
+    # Autocommit gäbe es nie ein COMMIT. Die Verbindung wird nur auf autocommit befragt.
+    status = (
+        psycopg.pq.TransactionStatus.INTRANS
+        if in_transaction
+        else psycopg.pq.TransactionStatus.IDLE
+    )
+    conn = SimpleNamespace(autocommit=False, info=SimpleNamespace(transaction_status=status))
+    lines: list[str] = []
     with pytest.raises(writer.SeedWriteError) as excinfo:
-        writer.run(conn, TARGET, DATA_DIR, SCHEMA_SQL, tmp_path, "db.example.com", print)
+        writer.run(conn, TARGET, DATA_DIR, SCHEMA_SQL, tmp_path, "db.example.com", lines.append)
     assert str(excinfo.value) == writer.AUTOCOMMIT_MESSAGE
+    assert lines == []
+    assert list(tmp_path.iterdir()) == []
 
 
 def test_wrong_effective_host_is_rejected_before_any_query(writer, tmp_path):
@@ -433,6 +445,7 @@ def test_fixed_messages_use_only_german_and_ascii_characters(writer, seed_main):
         writer.AUTOCOMMIT_MESSAGE,
         writer.NO_SCHEMA_MESSAGE,
         writer.DEPENDENT_MESSAGE,
+        writer.UNCERTAIN_MESSAGE,
         writer._describe_failure("Schreiben in die Datenbank fehlgeschlagen", failure),
         writer._describe_failure("Lesen der vorhandenen Tabellen fehlgeschlagen", failure),
         seed_main.USAGE_MESSAGE,
@@ -442,6 +455,50 @@ def test_fixed_messages_use_only_german_and_ascii_characters(writer, seed_main):
     for message in messages:
         assert ALLOWED_CHARACTERS.fullmatch(message), message
         message.encode("cp1252")
+
+
+# Ungewisser Zustand bei abgebrochener Verbindung (ohne Datenbank)
+
+
+def _failure(base, sqlstate):
+    """Eine Ausnahme der Klasse base mit festem SQLSTATE (None heißt: vom Client ausgelöst)."""
+    return type("PruefAusnahme", (base,), {"sqlstate": sqlstate})("Text der Bibliothek")
+
+
+@pytest.mark.parametrize(
+    ("exception", "uncertain"),
+    [
+        (_failure(psycopg.OperationalError, None), True),
+        (_failure(psycopg.OperationalError, "08006"), True),
+        (_failure(psycopg.OperationalError, "08003"), True),
+        (_failure(psycopg.OperationalError, "55P03"), False),
+        (_failure(psycopg.OperationalError, "57P01"), False),
+        (_failure(psycopg.IntegrityError, "23505"), False),
+        (_failure(psycopg.IntegrityError, None), False),
+        (psycopg.ProgrammingError("Text der Bibliothek"), False),
+        (RuntimeError("Text der Bibliothek"), False),
+    ],
+    ids=[
+        "operational-ohne-sqlstate",
+        "verbindungsfehler-08006",
+        "verbindungsfehler-08003",
+        "sperre-55P03",
+        "abgeschaltet-57P01",
+        "unique-23505",
+        "integrity-ohne-sqlstate",
+        "programming",
+        "runtime",
+    ],
+)
+def test_only_connection_failures_are_uncertain(writer, exception, uncertain):
+    failure = writer._failure_from(exception)
+    assert failure.uncertain is uncertain
+    assert failure.kind == type(exception).__name__
+
+
+def test_failure_never_carries_the_library_text(writer):
+    failure = writer._failure_from(_failure(psycopg.OperationalError, "08006"))
+    assert "Text der Bibliothek" not in repr(failure)
 
 
 # Tests mit Datenbank
@@ -846,3 +903,132 @@ def test_executed_sql_contains_only_the_six_drops_and_no_cascade(
         first_insert = next(i for i, text in enumerate(executed) if text.startswith("INSERT"))
         assert executed.index(schema_text) < first_insert
         assert max(executed.index(text) for text in expected_drops) < executed.index(schema_text)
+
+
+# Ungewisser Zustand (mit Datenbank)
+
+
+def test_connection_failure_while_writing_reports_an_uncertain_state(
+    writer, seed_conn, seed_target, tmp_path, monkeypatch
+):
+    def lost_connection(*args, **kwargs):
+        raise psycopg.OperationalError("Text der Bibliothek")
+
+    monkeypatch.setattr(writer, "_insert_activities", lost_connection)
+    with pytest.raises(writer.SeedWriteError) as excinfo:
+        _run(writer, seed_conn, seed_target, tmp_path)
+    monkeypatch.undo()
+    exc = excinfo.value
+    assert str(exc) == (
+        "Die Verbindung wurde unterbrochen. Der Zustand der Datenbank ist ungewiss, bitte prüfen."
+    )
+    assert "Bibliothek" not in str(exc) + repr(exc)
+    assert exc.__context__ is None
+    assert not (tmp_path / "rabatte.md").exists()
+
+
+def test_other_write_errors_keep_the_message_that_nothing_changed(
+    writer, seed_conn, seed_target, tmp_path, monkeypatch
+):
+    def failing(*args, **kwargs):
+        raise RuntimeError("x")
+
+    monkeypatch.setattr(writer, "_insert_activities", failing)
+    with pytest.raises(writer.SeedWriteError) as excinfo:
+        _run(writer, seed_conn, seed_target, tmp_path)
+    monkeypatch.undo()
+    assert str(excinfo.value) == (
+        "Schreiben in die Datenbank fehlgeschlagen (RuntimeError). "
+        "Die Datenbank wurde nicht verändert."
+    )
+
+
+# Autocommit: Der Produktionspfad mit echtem COMMIT und ROLLBACK (mit Datenbank)
+# Jeder Test arbeitet in einem eigenen Schema test_<zufall>, das am Ende gelöscht wird.
+# rabatte.md entsteht nur in einem temporären Verzeichnis, nie in data/richtlinien/.
+
+
+def _target_of(conn):
+    return Target(host=conn.info.host.lower(), dbname=conn.info.dbname)
+
+
+def test_real_connection_without_autocommit_is_rejected(writer, seed_db_url, seed_schema, tmp_path):
+    with psycopg.connect(seed_db_url, options=f"-csearch_path={seed_schema}") as conn:
+        assert not conn.autocommit
+        with pytest.raises(writer.SeedWriteError) as excinfo:
+            _run(writer, conn, _target_of(conn), tmp_path)
+        assert str(excinfo.value) == writer.AUTOCOMMIT_MESSAGE
+        assert _existing_tables(conn) == []
+    assert not (tmp_path / "rabatte.md").exists()
+
+
+def test_autocommit_run_commits_for_other_connections(writer, autocommit_db, real_data, tmp_path):
+    folder = tmp_path / "richtlinien"
+    folder.mkdir()
+    with autocommit_db.connect() as conn:
+        counts, _ = _run(writer, conn, _target_of(conn), folder)
+    assert counts == _expected(real_data)
+    with autocommit_db.connect() as other:
+        assert _counts(other) == _expected(real_data)
+    assert (folder / "rabatte.md").read_text(encoding="utf-8") == render_rabatte(real_data)
+
+
+def test_autocommit_failure_rolls_back_for_other_connections(
+    writer, autocommit_db, real_data, tmp_path, monkeypatch
+):
+    folder = tmp_path / "richtlinien"
+    folder.mkdir()
+    expected = _expected(real_data)
+    with autocommit_db.connect() as conn:
+        target = _target_of(conn)
+        _run(writer, conn, target, folder)
+        _add_marker(conn)
+        before = _fingerprint(conn)
+        rabatte_before = (folder / "rabatte.md").read_text(encoding="utf-8")
+
+        def failing(*args, **kwargs):
+            raise RuntimeError("x")
+
+        monkeypatch.setattr(writer, "_insert_activities", failing)
+        with pytest.raises(writer.SeedWriteError):
+            _run(writer, conn, target, folder, confirm=target.host)
+        monkeypatch.undo()
+    with autocommit_db.connect() as other:
+        assert _marker_count(other) == 1
+        assert _counts(other) == {**expected, "activities": expected["activities"] + 1}
+        assert _fingerprint(other) == before
+    assert (folder / "rabatte.md").read_text(encoding="utf-8") == rabatte_before
+
+
+def test_autocommit_guard_error_changes_nothing_for_other_connections(
+    writer, autocommit_db, real_data, tmp_path
+):
+    folder = tmp_path / "richtlinien"
+    folder.mkdir()
+    with autocommit_db.connect() as conn:
+        target = _target_of(conn)
+        _run(writer, conn, target, folder)
+        _add_marker(conn)
+        before = _fingerprint(conn)
+        (folder / "rabatte.md").write_text("alt\n", encoding="utf-8")
+        with pytest.raises(SeedGuardError):
+            _run(writer, conn, target, folder, confirm=None)
+    with autocommit_db.connect() as other:
+        assert _marker_count(other) == 1
+        assert _fingerprint(other) == before
+    assert (folder / "rabatte.md").read_text(encoding="utf-8") == "alt\n"
+
+
+def test_autocommit_second_run_with_confirmation_is_committed(
+    writer, autocommit_db, real_data, tmp_path
+):
+    folder = tmp_path / "richtlinien"
+    folder.mkdir()
+    with autocommit_db.connect() as conn:
+        target = _target_of(conn)
+        _run(writer, conn, target, folder)
+        _add_marker(conn)
+        _run(writer, conn, target, folder, confirm=target.host)
+    with autocommit_db.connect() as other:
+        assert _marker_count(other) == 0
+        assert _counts(other) == _expected(real_data)

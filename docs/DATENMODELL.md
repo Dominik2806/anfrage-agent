@@ -140,6 +140,7 @@ Bekannte Grenzen:
 - Die Bestätigung identifiziert den Host, nicht das Projekt. Der Session-Pooler-Host ist je Region geteilt, die Projektkennung steckt im Benutzernamen.
 - Die Prüfung des tatsächlichen Hosts erkennt keine Umleitung auf DNS-Ebene.
 - Scheitert das Schreiben von `rabatte.md` nach erfolgreichem Commit, meldet das Skript Exit 3 mit dem Hinweis, dass die Datenbank befüllt wurde.
+- Bricht die Verbindung ab, während das COMMIT unterwegs ist, kann der Server es schon ausgeführt haben. Das Skript meldet dann Exit 3 mit dem Hinweis, dass der Zustand der Datenbank ungewiss ist und geprüft werden muss. Diese Meldung gibt es nur bei Verbindungsfehlern (SQLSTATE der Klasse 08 oder ohne SQLSTATE); bei allen anderen Fehlern bleibt die Datenbank unverändert.
 
 ## 5. Konsistenzprüfungen
 
