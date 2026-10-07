@@ -2,7 +2,7 @@
 
 Alle Daten sind synthetisch und fiktiv (Domains und Adressen enden auf `.example`, keine Telefonnummern). Das Seed-Skript (F05) liest diese Dateien und befüllt die Datenbank. Struktur: `db/schema.sql` und `docs/DATENMODELL.md`.
 
-Stand: Schritt 2c (Katalog, Kunden, Kontakte, Aktivitäten). Die Rabattregeln folgen in 2d.
+Stand: Schritt 2d (Katalog, Kunden, Kontakte, Aktivitäten, Rabattregeln). Die Stammdaten sind vollständig.
 
 ## Dateien
 
@@ -13,6 +13,7 @@ Stand: Schritt 2c (Katalog, Kunden, Kontakte, Aktivitäten). Die Rabattregeln fo
 | `customers.json` | 21 Firmen (14 Bestandskunden, 6 Leads, 1 inaktiv) | `customers` |
 | `contacts.json` | 35 Ansprechpersonen, 1 bis 2 je Firma | `contacts` |
 | `activities.json` | 77 frühere Anfragen, Angebote, Aufträge, Reklamationen, Serviceeinsätze und Notizen, chronologisch | `activities` |
+| `discount_rules.json` | 18 Rabattregeln (interne Obergrenzen) | `discount_rules` |
 
 ## Natürliche Schlüssel
 
@@ -47,6 +48,19 @@ Regeln der Aktivitäten (geprüft durch Lesen von `activities.json`, 77 Einträg
 | `WV-4xxx` | `service_contract` (Wartung) |
 
 Ein Suffix (`-B8`, `-X2`, `-H1`, `-L`, `-X1`) kennzeichnet eine Variante.
+
+## Rabattregeln
+
+`discount_rules.json`: Felder wie in der Tabelle `discount_rules` (ohne `id`): `customer_status` (`existing`, `lead` oder `null` für alle), `product_category` (eine der vier Kategorien oder `null` für alle), `min_quantity`, `max_discount_percent` und `description` (Regeltext auf Deutsch).
+
+- Es gibt keinen natürlichen Schlüssel. Die Eindeutigkeit läuft über die Kombination aus `customer_status`, `product_category` und `min_quantity`. Keine zwei Regeln haben denselben Geltungsbereich.
+- `max_discount_percent` ist eine interne Obergrenze als Maßstab für den Innendienst, keine Zusage. Der Agent sagt nie Rabatte zu und nennt sie nie in einem Entwurf (Auftrag 5 und 5.1).
+- Die Mindestmenge richtet sich nach der Preiseinheit des Artikels (Meter, Stück oder Jahr, siehe `products.json`). Die Beschreibung nennt die Einheit.
+- Die Daten enthalten nur Stufen. Welche Regel für einen Fall gilt (speziellste Regel, höchste passende Mindestmenge), legt F16 fest.
+- Für Kunden mit Status `inactive` gibt es keine eigene Regel. Dort greift nur die allgemeine Obergrenze (ohne Geltungsbereich). Details legt F16 fest.
+- Wartungsverträge haben für Bestandskunden und Leads eine eigene Regel mit 0 Prozent.
+- `data/richtlinien/rabatte.md` wird aus dieser Tabelle vom Seed-Skript generiert und darf nicht von Hand geändert werden.
+- Alle Werte sind fiktive Platzhalter. Die Fachseite hat sie nicht geprüft.
 
 ## Absichtliche Lücken (für Bewertungsfälle, F23)
 

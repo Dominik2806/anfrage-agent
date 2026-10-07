@@ -1,0 +1,128 @@
+[
+  {
+    "customer_status": null,
+    "product_category": null,
+    "min_quantity": 1,
+    "max_discount_percent": 1.0,
+    "description": "Allgemeine Obergrenze ohne Geltungsbereich, alle Kunden und Kategorien, ab Menge 1"
+  },
+  {
+    "customer_status": "existing",
+    "product_category": "conveyor",
+    "min_quantity": 1,
+    "max_discount_percent": 3.0,
+    "description": "Bestandskunde, Förderbänder ab 1 Meter bzw. Stück"
+  },
+  {
+    "customer_status": "existing",
+    "product_category": "conveyor",
+    "min_quantity": 10,
+    "max_discount_percent": 5.0,
+    "description": "Bestandskunde, Förderbänder ab 10 Meter bzw. Stück"
+  },
+  {
+    "customer_status": "existing",
+    "product_category": "conveyor",
+    "min_quantity": 25,
+    "max_discount_percent": 8.0,
+    "description": "Bestandskunde, Förderbänder ab 25 Meter bzw. Stück"
+  },
+  {
+    "customer_status": "existing",
+    "product_category": "housing",
+    "min_quantity": 1,
+    "max_discount_percent": 2.0,
+    "description": "Bestandskunde, Schutzgehäuse ab 1 Stück bzw. Meter"
+  },
+  {
+    "customer_status": "existing",
+    "product_category": "housing",
+    "min_quantity": 5,
+    "max_discount_percent": 4.0,
+    "description": "Bestandskunde, Schutzgehäuse ab 5 Stück bzw. Meter"
+  },
+  {
+    "customer_status": "existing",
+    "product_category": "housing",
+    "min_quantity": 20,
+    "max_discount_percent": 6.0,
+    "description": "Bestandskunde, Schutzgehäuse ab 20 Stück bzw. Meter"
+  },
+  {
+    "customer_status": "existing",
+    "product_category": "spare_part",
+    "min_quantity": 1,
+    "max_discount_percent": 2.0,
+    "description": "Bestandskunde, Ersatzteile ab 1 Stück bzw. Meter"
+  },
+  {
+    "customer_status": "existing",
+    "product_category": "spare_part",
+    "min_quantity": 10,
+    "max_discount_percent": 3.0,
+    "description": "Bestandskunde, Ersatzteile ab 10 Stück bzw. Meter"
+  },
+  {
+    "customer_status": "existing",
+    "product_category": "spare_part",
+    "min_quantity": 50,
+    "max_discount_percent": 5.0,
+    "description": "Bestandskunde, Ersatzteile ab 50 Stück bzw. Meter"
+  },
+  {
+    "customer_status": "existing",
+    "product_category": "service_contract",
+    "min_quantity": 1,
+    "max_discount_percent": 0.0,
+    "description": "Bestandskunde, Wartungsverträge ab 1 Jahr, kein Spielraum"
+  },
+  {
+    "customer_status": "lead",
+    "product_category": "conveyor",
+    "min_quantity": 1,
+    "max_discount_percent": 1.0,
+    "description": "Lead, Förderbänder ab 1 Meter bzw. Stück"
+  },
+  {
+    "customer_status": "lead",
+    "product_category": "conveyor",
+    "min_quantity": 25,
+    "max_discount_percent": 2.5,
+    "description": "Lead, Förderbänder ab 25 Meter bzw. Stück"
+  },
+  {
+    "customer_status": "lead",
+    "product_category": "housing",
+    "min_quantity": 1,
+    "max_discount_percent": 0.5,
+    "description": "Lead, Schutzgehäuse ab 1 Stück bzw. Meter"
+  },
+  {
+    "customer_status": "lead",
+    "product_category": "housing",
+    "min_quantity": 20,
+    "max_discount_percent": 1.5,
+    "description": "Lead, Schutzgehäuse ab 20 Stück bzw. Meter"
+  },
+  {
+    "customer_status": "lead",
+    "product_category": "spare_part",
+    "min_quantity": 1,
+    "max_discount_percent": 0.0,
+    "description": "Lead, Ersatzteile ab 1 Stück bzw. Meter, kein Spielraum"
+  },
+  {
+    "customer_status": "lead",
+    "product_category": "spare_part",
+    "min_quantity": 50,
+    "max_discount_percent": 1.0,
+    "description": "Lead, Ersatzteile ab 50 Stück bzw. Meter"
+  },
+  {
+    "customer_status": "lead",
+    "product_category": "service_contract",
+    "min_quantity": 1,
+    "max_discount_percent": 0.0,
+    "description": "Lead, Wartungsverträge ab 1 Jahr, kein Spielraum"
+  }
+]
