@@ -14,9 +14,10 @@ Laufzeit 8 Wochen, Meilensteine M0–M6, Features F01–F34 (Auftrag Kapitel 3).
 - `web/` – Next.js-App: Anfrageformular, E-Mail-Simulator, Freigabe-Liste, Postausgang, Cockpit
 - `agent/` – Orchestrator (Agentenschleife, MCP-Client, Leitplanken), Auswertungsskript
 - `mcp-server/` – Datenservice „hoffmann-data“ (Tools, Resources, Prompts)
+- `db/` – Schema (`db/schema.sql`) und Befüllskript (`db/seed/`)
 - `data/` – synthetische Testdaten, Skripte zum Befüllen der Datenbank
 - `evals/` – Bewertungsset (mind. 50 Fälle) und Berichte
-- `tests/` – Tests der Hooks (`tests/hooks/`)
+- `tests/` – Tests der Hooks (`tests/hooks/`), des Schemas (`tests/db/`) und des Befüllskripts (`tests/seed/`)
 - `docs/` – AUFTRAG.md, ARCHITECTURE.md, EVALS.md, `adr/`
 - `.claude/` – Subagents, Skills, Hooks; `.github/workflows/` – CI
 - Root: README.md, AGENT_LOG.md, CHANGELOG.md, .env.example
@@ -34,6 +35,9 @@ Laufzeit 8 Wochen, Meilensteine M0–M6, Features F01–F34 (Auftrag Kapitel 3).
 - Hooks testen (erwartet 0 Fehler): `powershell.exe -NoProfile -ExecutionPolicy Bypass -File tests/hooks/test-hooks.ps1`
 - TypeScript, JSON, CSS formatieren: `npx prettier --write <Datei>`
 - Python formatieren: `python -m ruff format <Datei>`
+- Datenbank befüllen (löscht Tabellen, nie ohne den Menschen ausführen): `python -m db.seed` (unter Windows `.\.venv\Scripts\python.exe -m db.seed`). `DATABASE_URL` kommt aus der Umgebung, für Hosts außer localhost mit `sslmode=require`; bei vorhandenen Tabellen zusätzlich `SEED_CONFIRM_RESET` = Host.
+- Python-Tests: `python -m pytest tests/seed tests/db` (Tests mit Datenbank brauchen `TEST_DATABASE_URL`, nur localhost)
+- Python-Format prüfen: `python -m ruff format --check .`
 - Weitere Befehle erst eintragen, wenn sie existieren und ausprobiert wurden.
   Ziel: lokale Einrichtung mit höchstens fünf Befehlen.
 - Pipeline-Status eines Pull Requests anzeigen: `gh pr checks <Nummer>`
@@ -87,6 +91,7 @@ Durchsetzung:
   lückenlos: Umgehen ist verboten. Blockiert ein Hook einen Aufruf, melde das und suche keinen anderen Weg.
   Schreibe „.env“ nicht in Commit-Nachrichten, der Hook blockiert sonst.
 - Der echte API-Schlüssel liegt außerhalb des Projektordners. Lege nie eine `.env` im Projekt an.
+- Das Befüllskript (`python -m db.seed`) läuft nie gegen die echte Datenbank durch dich. Das macht der Mensch.
 - Gib dem code-reviewer bei geänderten Dateien den Diff mit, sonst sieht er die Änderung nicht.
 - Nach dem Öffnen eines Pull Requests auf die Pipeline warten (Hook-Tests, Formatierung). Ist sie rot,
   nenne die Ursache aus dem Protokoll und umgehe sie nicht.

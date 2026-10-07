@@ -16,6 +16,18 @@ und welche Konsequenz daraus folgte. Neueste Einträge stehen oben.
 
 ## Einträge
 
+### 2026-10-07 · F05 · Befunde der Reviewer zum Befüllskript (Code von Claude Code)
+- **Aufgabe:** Review von F05 Teil 2 vor dem Pull Request mit code-reviewer und security-reviewer.
+- **Verhalten des Agenten:** Claude Code hatte Löschschutz, Schreiber, Einstiegspunkt und Tests geliefert, jede Datei nach meiner Freigabe, die Tests ohne Datenbank lokal grün.
+- **Fehler:**
+  - Sicherheit: Das Skript verlangte keine verschlüsselte Verbindung. Ohne sslmode nimmt libpq prefer und fällt auf unverschlüsselt zurück. Der Datenbankname war nicht begrenzt: Bei einem Passwort mit unkodiertem / hätten Passwortreste oder Steuerzeichen in der Ausgabe gestanden.
+  - Tests: Tests wurden stumm übersprungen, wenn ein Import in writer.py scheiterte (importorskip), die CI wäre grün geblieben. Alle Datenbank-Tests liefen unter einer äußeren Transaktion, der Produktionspfad mit Autocommit, echtem COMMIT und ROLLBACK war nicht getestet. Die Prüfung ließ eine Verbindung in einer offenen Transaktion zu, die nie committet worden wäre. Die Meldung "nicht verändert" konnte bei einem Verbindungsabbruch während des COMMIT falsch sein.
+  - Daten: Ein Wartungsvertrag war für ein Jahr bestellt, der Einsatz "im Rahmen des Vertrags" lag nach dessen Ablauf. Ein Eintrag von 2018 sagte "inzwischen ausgelaufen", ein Pronomen passte nicht zum Kontakt, ein README-Satz widersprach den Daten. Das README behauptete Prüfungen (Beträge, Sortierung, .example), die kein Test absicherte.
+- **Entdeckung:** code-reviewer (vier mittlere Befunde) und security-reviewer (zehn Befunde, keine hohen) lasen den Branch vor dem Pull Request. Der KI-Assistent im Chat prüfte die Behauptungen nach, etwa das Fehlen von sslmode im Code und den Vertrag in den Daten.
+- **Korrektur:** In drei Gruppen mit je einem Commit: Daten und Datentests, Autocommit strikt mit Test des Produktionspfads und Meldung bei ungewissem Zustand, sslmode und Datenbankname im Guard. Die niedrigen Befunde sind als Liste festgehalten und noch offen.
+- **Verifikation (durch den KI-Assistenten im Chat, nicht durch Claude Code):** Im Sandbox-Lauf des Assistenten liefen 698 Tests (tests/db und tests/seed) gegen einen lokalen Postgres 16, alle bestanden. Eine Gegenprobe ohne die Transaktion um das Schreiben ließ vier Tests scheitern. Ich führte python -m db.seed gegen die echte Datenbank aus: erster Lauf auf leerer Datenbank, zweiter ohne Bestätigung (Exit 2, nichts gelöscht), dritter mit dem Host als Bestätigung (neu aufgebaut, gleiche Zeilenzahlen).
+- **Konsequenz:** importorskip nur für optionale Pakete, nie für eigenen Code. Der Produktionspfad bekommt einen eigenen Test, nicht nur die Testvariante. Was die Doku über Prüfungen behauptet, braucht einen Test. Reviewer laufen vor dem Pull Request.
+
 ### 2026-10-07 · F05 · Fehler in Testdaten, Löschschutz und Tests des Befüllskripts (Code von Claude Code)
 - **Aufgabe:** Befüllskript für die Datenbank mit Stammdaten, Richtlinien und Löschschutz schreiben (F05 Teil 2).
 - **Verhalten des Agenten:** Claude Code schrieb Testdaten, Lader, Konsistenzprüfungen, Löschschutz, Schreiber und Tests, jede Datei erst nach meiner Freigabe.
