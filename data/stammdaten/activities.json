@@ -17,7 +17,7 @@
     "type": "order",
     "occurred_at": "2018-09-10T14:05:00+02:00",
     "subject": "Auftrag Steuerung",
-    "summary": "Ersatzbestellung einer Steuerung für den Kurvenförderer, Menge 1 Stück. Der Artikel ist inzwischen ausgelaufen.",
+    "summary": "Ersatzbestellung einer Steuerung für den Kurvenförderer, Menge 1 Stück.",
     "amount_eur": 1450.0,
     "created_by": "seed"
   },
@@ -83,8 +83,8 @@
     "type": "order",
     "occurred_at": "2025-01-28T14:30:00+01:00",
     "subject": "Wartungsvertrag Premium",
-    "summary": "Bestellung des Wartungsvertrags Premium für die Fertigungslinie, Menge 1 Jahr, vier Inspektionen pro Jahr.",
-    "amount_eur": 3450.0,
+    "summary": "Bestellung des Wartungsvertrags Premium für die Fertigungslinie, Menge 2 Jahre, vier Inspektionen pro Jahr.",
+    "amount_eur": 6900.0,
     "created_by": "seed"
   },
   {
@@ -413,7 +413,7 @@
     "type": "inquiry",
     "occurred_at": "2025-06-03T09:05:00+02:00",
     "subject": "Nachfrage zum Angebot Edelstahl-Gurtförderer",
-    "summary": "Der Kunde fragt nach dem Stand seiner Anfrage vom April und dem Angebot vom 15. April 2025. Er möchte wissen, ob Preis und Lieferzeit unverändert gelten.",
+    "summary": "Der Kunde fragt nach dem Stand seiner Anfrage vom April und dem Angebot vom 15. April 2025. Der Kunde möchte wissen, ob Preis und Lieferzeit unverändert gelten.",
     "amount_eur": null,
     "created_by": "seed"
   },

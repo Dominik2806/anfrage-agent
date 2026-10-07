@@ -25,13 +25,14 @@ Verweise laufen nie über IDs, sondern über `article_number` (später auch `dom
 - `contacts.json`: Felder wie in der Tabelle `contacts` (ohne `id`), statt `customer_id` das Feld `customer_domain`. Natürlicher Schlüssel ist `email`. Die Domain der E-Mail-Adresse ist die Domain der Firma (Konsistenzprüfung 2). `created_at` ist nie früher als `created_at` der Firma.
 - `activities.json`: Felder wie in der Tabelle `activities` (ohne `id`). Verweise: `customer_domain` (Pflicht), `contact_email` und `article_number` (beide optional, `null` bei keinem Bezug). Pflichtfelder: `type`, `occurred_at`, `subject`, `summary`, `amount_eur` (explizit `null`, wenn kein Betrag) und `created_by` (immer `seed`).
 
-Regeln der Aktivitäten (geprüft durch Lesen von `activities.json`, 77 Einträge):
+Regeln der Aktivitäten (77 Einträge; Beträge, Sortierung, `.example` und Telefonnummern prüft `tests/seed/test_seed_data.py`):
 
 - Die Einträge sind chronologisch nach `occurred_at` sortiert, mit Zeitzone. Der letzte Eintrag liegt am 22.09.2026, nicht nach dem 05.10.2026.
 - `occurred_at` liegt nie vor `created_at` des Kunden (Konsistenzprüfung 3). Der früheste Eintrag eines aktiven Kunden stammt vom 16.01.2025; nur der inaktive Kunde Wiesental hat ältere Einträge (ab 2017).
 - Die E-Mail-Domain des Kontakts entspricht `customer_domain` (Konsistenzprüfung 2).
-- `amount_eur` ist nur bei `quote` und `order` gesetzt, netto, und immer Listenpreis mal ganzzahlige Menge, ohne Abschläge. Die Menge steht in der Zusammenfassung (bei Wartungsverträgen 1 Jahr).
+- `amount_eur` ist nur bei `quote` und `order` gesetzt, netto, und immer Listenpreis mal ganzzahlige Menge, ohne Abschläge. Die Menge steht in der Zusammenfassung (bei Wartungsverträgen in Jahren).
 - Die Texte (`subject`, `summary`) enthalten keine Artikelnummern. Der Artikelbezug steht nur in `article_number` und verweist auf Artikel im Katalog (Konsistenzprüfung 5).
+
 ## Preise
 
 - **`list_price` ist ein Netto-Listenpreis** (ohne Mehrwertsteuer) in Euro. `tonalitaet.md` verlangt deshalb „zuzüglich Mehrwertsteuer“.
@@ -69,7 +70,7 @@ Diese Lücken sind gewollt. Sie dürfen nicht „repariert“ werden, weil Bewer
 - **Teil ohne Zuordnung:** `ET-3009` (Lagersatz) hat keine Zeile in `product_fits`. Eine Anfrage „Lagersatz für Anlage X“ hat keine belegte Zuordnung und wird eskaliert.
 - **Anlagen ohne oder mit wenigen Ersatzteilen:** `FB-1008`, `FB-1008-H1` und alle Gehäuse außer `SG-2004` haben kein zugeordnetes Ersatzteil; `FB-1006` nur `ET-3013`.
 - **Varianten:** `FB-1001` hat die Breite 500 mm, `FB-1001-B8` die Breite 800 mm. Nennt ein Kunde nur `FB-1001`, aber 800 mm, ist das ein Widerspruch. Ersatzteile sind nur den Basisartikeln zugeordnet; Varianten erben die Zuordnung nicht automatisch.
-- **Inaktiver Artikel:** `ET-3014` (`is_active` = false, ausgelaufen). Der Nachfolger `ET-3010` steht nur im Beschreibungstext und in `technical_data` (`successor`), nicht als Verweis auf einen Artikel in `product_fits`.
+- **Inaktiver Artikel:** `ET-3014` (`is_active` = false, ausgelaufen). Der Nachfolger `ET-3010` steht im Beschreibungstext, in `technical_data` (`successor`) und als Notiz („Ersatz für die ausgelaufene Steuerung“) bei der Zuordnung von `ET-3010` zu `FB-1007` in `product_fits.json`.
 - **Ähnliche Namen:** Antriebsmotor 0,75 kW und 1,5 kW, Gurtförderer Leicht, Standard und Schwerlast, Wartungsvertrag Basis, Plus und Premium. Unscharfe Anfragen können mehrdeutig sein.
 - **Alternativbezeichnungen:** Jede Beschreibung enthält Umschreibungen („Auch: …“), damit Produkte auch ohne Artikelnummer auffindbar sind.
 - **Unbekannte Produkte (fehlen absichtlich, ohne Artikelnummer):** Rollenbahn, Kettenförderer, Hubtisch, Zahnriemenförderer, Sortieranlage, Kühlschmierstoff, Schulung und Software. Diese Begriffe dürfen in den Testdaten nicht mit einer Artikelnummer vorkommen.
