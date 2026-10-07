@@ -1,0 +1,620 @@
+[
+  {
+    "article_number": "FB-1001",
+    "name": "Gurtförderer Standard",
+    "category": "conveyor",
+    "description": "Gurtförderer für Stückgut in der allgemeinen Fertigung, Gurtbreite 500 mm, Preis je laufendem Meter Förderlänge. Auch: Gurtband, Bandförderer, Transportband.",
+    "technical_data": {
+      "belt_width_mm": 500,
+      "max_load_kg_per_m": 60,
+      "belt_speed_m_per_s": 0.5,
+      "motor_power_kw": 0.75,
+      "voltage_v": 400
+    },
+    "list_price": 890.0,
+    "price_unit": "meter",
+    "lead_time_days": 30,
+    "is_active": true
+  },
+  {
+    "article_number": "FB-1001-B8",
+    "name": "Gurtförderer Standard, Breite 800 mm",
+    "category": "conveyor",
+    "description": "Variante des Gurtförderers Standard mit Gurtbreite 800 mm für größere Werkstücke, Preis je laufendem Meter Förderlänge. Auch: breiter Bandförderer, Gurtband 800.",
+    "technical_data": {
+      "belt_width_mm": 800,
+      "max_load_kg_per_m": 80,
+      "belt_speed_m_per_s": 0.5,
+      "motor_power_kw": 1.5,
+      "voltage_v": 400
+    },
+    "list_price": 1190.0,
+    "price_unit": "meter",
+    "lead_time_days": 35,
+    "is_active": true
+  },
+  {
+    "article_number": "FB-1002",
+    "name": "Gurtförderer Leicht",
+    "category": "conveyor",
+    "description": "Leichter Gurtförderer für Kleinteile und Verpackungen, Gurtbreite 400 mm, Preis je laufendem Meter Förderlänge. Auch: Leichtbandförderer, Kleinteileband, Transportband leicht.",
+    "technical_data": {
+      "belt_width_mm": 400,
+      "max_load_kg_per_m": 25,
+      "belt_speed_m_per_s": 0.8,
+      "motor_power_kw": 0.75,
+      "voltage_v": 400
+    },
+    "list_price": 640.0,
+    "price_unit": "meter",
+    "lead_time_days": 25,
+    "is_active": true
+  },
+  {
+    "article_number": "FB-1003",
+    "name": "Gurtförderer Schwerlast",
+    "category": "conveyor",
+    "description": "Robuster Gurtförderer für schwere Lasten in Gießerei und Metallverarbeitung, Gurtbreite 800 mm, Preis je laufendem Meter Förderlänge. Auch: Schwerlastband, Schwerlastförderer, Gurtband schwer.",
+    "technical_data": {
+      "belt_width_mm": 800,
+      "max_load_kg_per_m": 250,
+      "belt_speed_m_per_s": 0.3,
+      "motor_power_kw": 1.5,
+      "voltage_v": 400
+    },
+    "list_price": 1650.0,
+    "price_unit": "meter",
+    "lead_time_days": 45,
+    "is_active": true
+  },
+  {
+    "article_number": "FB-1003-X2",
+    "name": "Gurtförderer Schwerlast, verstärkt",
+    "category": "conveyor",
+    "description": "Variante des Gurtförderers Schwerlast mit verstärktem Rahmen und höherer Tragfähigkeit, Preis je laufendem Meter Förderlänge. Auch: Schwerlastband verstärkt, Schwerlastförderer extra.",
+    "technical_data": {
+      "belt_width_mm": 800,
+      "max_load_kg_per_m": 400,
+      "belt_speed_m_per_s": 0.3,
+      "motor_power_kw": 1.5,
+      "voltage_v": 400
+    },
+    "list_price": 1890.0,
+    "price_unit": "meter",
+    "lead_time_days": 50,
+    "is_active": true
+  },
+  {
+    "article_number": "FB-1004",
+    "name": "Muldengurtförderer",
+    "category": "conveyor",
+    "description": "Gurtförderer mit muldenförmigem Gurt für Schüttgut wie Späne und Granulat, Gurtbreite 650 mm, Preis je laufendem Meter Förderlänge. Auch: Muldenband, Trogförderer, Späneförderer.",
+    "technical_data": {
+      "belt_width_mm": 650,
+      "max_load_kg_per_m": 120,
+      "belt_speed_m_per_s": 0.6,
+      "motor_power_kw": 1.5,
+      "voltage_v": 400
+    },
+    "list_price": 1320.0,
+    "price_unit": "meter",
+    "lead_time_days": 40,
+    "is_active": true
+  },
+  {
+    "article_number": "FB-1005",
+    "name": "Schrägförderer",
+    "category": "conveyor",
+    "description": "Steigender Gurtförderer mit Mitnehmerprofilen für Steigungen bis 35 Grad, Preis je Stück bei Standardlänge 4 m. Auch: Steilförderer, Steigband, Aufwärtsförderer.",
+    "technical_data": {
+      "belt_width_mm": 500,
+      "max_angle_deg": 35,
+      "standard_length_m": 4,
+      "motor_power_kw": 1.5,
+      "voltage_v": 400
+    },
+    "list_price": 7450.0,
+    "price_unit": "piece",
+    "lead_time_days": 50,
+    "is_active": true
+  },
+  {
+    "article_number": "FB-1006",
+    "name": "Modularbandförderer",
+    "category": "conveyor",
+    "description": "Förderer mit Kunststoff-Modulband, unempfindlich gegen Öl und Schnittkanten, Preis je laufendem Meter Förderlänge. Auch: Kunststoffgliederband, Kettenband aus Kunststoff, Plastikgliederförderer.",
+    "technical_data": {
+      "belt_width_mm": 600,
+      "max_load_kg_per_m": 100,
+      "belt_material": "Polypropylen",
+      "motor_power_kw": 0.75,
+      "voltage_v": 400
+    },
+    "list_price": 1480.0,
+    "price_unit": "meter",
+    "lead_time_days": 35,
+    "is_active": true
+  },
+  {
+    "article_number": "FB-1007",
+    "name": "Kurvenförderer 90 Grad",
+    "category": "conveyor",
+    "description": "Kurvenförderer mit 90-Grad-Bogen für platzsparende Linienführung, Preis je Stück. Auch: Bogenförderer, Eckförderer, Kurvenband.",
+    "technical_data": {
+      "belt_width_mm": 500,
+      "curve_angle_deg": 90,
+      "inner_radius_mm": 800,
+      "motor_power_kw": 0.75,
+      "voltage_v": 400
+    },
+    "list_price": 9800.0,
+    "price_unit": "piece",
+    "lead_time_days": 60,
+    "is_active": true
+  },
+  {
+    "article_number": "FB-1008",
+    "name": "Edelstahl-Gurtförderer Lebensmittel",
+    "category": "conveyor",
+    "description": "Gurtförderer aus Edelstahl mit lebensmittelechtem Gurt für die Lebensmittelindustrie, Gurtbreite 500 mm, Preis je laufendem Meter Förderlänge. Auch: Hygienebandförderer, Edelstahlband, Foodband.",
+    "technical_data": {
+      "belt_width_mm": 500,
+      "frame_material": "Edelstahl 1.4301",
+      "belt_material": "Polyurethan, lebensmittelecht",
+      "motor_power_kw": 0.75,
+      "voltage_v": 400
+    },
+    "list_price": 2350.0,
+    "price_unit": "meter",
+    "lead_time_days": 45,
+    "is_active": true
+  },
+  {
+    "article_number": "FB-1008-H1",
+    "name": "Edelstahl-Gurtförderer, abspritzbar",
+    "category": "conveyor",
+    "description": "Variante des Edelstahl-Gurtförderers mit Schutzart IP66 und offenem Rahmen für die Nassreinigung, Preis je laufendem Meter Förderlänge. Auch: Waschdown-Förderer, Hygienebandförderer abspritzbar.",
+    "technical_data": {
+      "belt_width_mm": 500,
+      "frame_material": "Edelstahl 1.4301",
+      "belt_material": "Polyurethan, lebensmittelecht",
+      "ip_rating": "IP66",
+      "motor_power_kw": 0.75,
+      "voltage_v": 400
+    },
+    "list_price": 2790.0,
+    "price_unit": "meter",
+    "lead_time_days": 55,
+    "is_active": true
+  },
+  {
+    "article_number": "SG-2001",
+    "name": "Antriebsabdeckung",
+    "category": "housing",
+    "description": "Schutzabdeckung aus Stahlblech für den Antriebsbereich eines Gurtförderers, Länge 600 mm. Auch: Antriebshaube, Motorabdeckung, Berührungsschutz Antrieb.",
+    "technical_data": {
+      "material": "Stahlblech, pulverbeschichtet",
+      "length_mm": 600,
+      "ip_rating": "IP54"
+    },
+    "list_price": 185.0,
+    "price_unit": "piece",
+    "lead_time_days": 10,
+    "is_active": true
+  },
+  {
+    "article_number": "SG-2001-L",
+    "name": "Antriebsabdeckung lang",
+    "category": "housing",
+    "description": "Variante der Antriebsabdeckung mit Länge 900 mm für Antriebe mit Getriebe. Auch: lange Antriebshaube, Getriebeabdeckung.",
+    "technical_data": {
+      "material": "Stahlblech, pulverbeschichtet",
+      "length_mm": 900,
+      "ip_rating": "IP54"
+    },
+    "list_price": 235.0,
+    "price_unit": "piece",
+    "lead_time_days": 12,
+    "is_active": true
+  },
+  {
+    "article_number": "SG-2002",
+    "name": "Seitenverkleidung für Förderbänder",
+    "category": "housing",
+    "description": "Seitliche Verkleidung aus Stahlblech zum Schutz vor Eingreifen, Höhe 300 mm, Preis je laufendem Meter. Auch: Seitenblech, Bandabdeckung seitlich, Schutzblech Förderband.",
+    "technical_data": {
+      "material": "Stahlblech, verzinkt",
+      "height_mm": 300
+    },
+    "list_price": 96.0,
+    "price_unit": "meter",
+    "lead_time_days": 14,
+    "is_active": true
+  },
+  {
+    "article_number": "SG-2003",
+    "name": "Schutzgitter-Set",
+    "category": "housing",
+    "description": "Set aus Gitterfeldern und Pfosten zur Absicherung von Gefahrenbereichen an Förderanlagen. Auch: Schutzzaun, Maschinenschutzgitter, Gitterschutz.",
+    "technical_data": {
+      "material": "Stahldraht, gelb pulverbeschichtet",
+      "panel_width_mm": 1000,
+      "panel_height_mm": 1500,
+      "panels_per_set": 4
+    },
+    "list_price": 340.0,
+    "price_unit": "piece",
+    "lead_time_days": 15,
+    "is_active": true
+  },
+  {
+    "article_number": "SG-2004",
+    "name": "Einhausung Übergabestelle",
+    "category": "housing",
+    "description": "Geschlossene Einhausung für Übergabestellen zwischen zwei Förderern gegen Staub und Eingreifen. Auch: Übergabehaube, Kapselung Übergabe, Staubschutzhaube.",
+    "technical_data": {
+      "material": "Stahlblech, pulverbeschichtet",
+      "length_mm": 1200,
+      "width_mm": 900,
+      "ip_rating": "IP54"
+    },
+    "list_price": 1280.0,
+    "price_unit": "piece",
+    "lead_time_days": 28,
+    "is_active": true
+  },
+  {
+    "article_number": "SG-2004-X1",
+    "name": "Einhausung Übergabestelle mit Sichtfenster",
+    "category": "housing",
+    "description": "Variante der Einhausung für Übergabestellen mit Sichtfenster aus Polycarbonat zur Sichtkontrolle. Auch: Übergabehaube mit Fenster, Kapselung mit Sichtscheibe.",
+    "technical_data": {
+      "material": "Stahlblech, pulverbeschichtet",
+      "window_material": "Polycarbonat",
+      "length_mm": 1200,
+      "width_mm": 900,
+      "ip_rating": "IP54"
+    },
+    "list_price": 1490.0,
+    "price_unit": "piece",
+    "lead_time_days": 32,
+    "is_active": true
+  },
+  {
+    "article_number": "SG-2005",
+    "name": "Lärmschutzhaube",
+    "category": "housing",
+    "description": "Schallisolierende Haube für laute Antriebe und Übergabestellen, mit Schaumstoffdämmung. Auch: Schallschutzhaube, Schalldämmkapsel, Lärmkapsel.",
+    "technical_data": {
+      "material": "Stahlblech mit Dämmschaum",
+      "noise_reduction_db": 15,
+      "length_mm": 1500,
+      "width_mm": 1000
+    },
+    "list_price": 2150.0,
+    "price_unit": "piece",
+    "lead_time_days": 35,
+    "is_active": true
+  },
+  {
+    "article_number": "SG-2006",
+    "name": "Edelstahlgehäuse IP66",
+    "category": "housing",
+    "description": "Gehäuse aus Edelstahl für Steuerung und Antriebselektronik in feuchter Umgebung. Auch: Schaltschrank Edelstahl, Edelstahlschrank, Steuerkasten Hygiene.",
+    "technical_data": {
+      "material": "Edelstahl 1.4301",
+      "ip_rating": "IP66",
+      "width_mm": 600,
+      "height_mm": 800,
+      "depth_mm": 300
+    },
+    "list_price": 1760.0,
+    "price_unit": "piece",
+    "lead_time_days": 30,
+    "is_active": true
+  },
+  {
+    "article_number": "ET-3001",
+    "name": "Antriebsmotor 0,75 kW",
+    "category": "spare_part",
+    "description": "Drehstrom-Getriebemotor 0,75 kW als Ersatz für Antriebe leichter und mittlerer Gurtförderer. Auch: Motor klein, Förderbandmotor 0,75, Antrieb 0,75 kW.",
+    "technical_data": {
+      "power_kw": 0.75,
+      "voltage_v": 400,
+      "speed_rpm": 1400
+    },
+    "list_price": 420.0,
+    "price_unit": "piece",
+    "lead_time_days": 7,
+    "is_active": true
+  },
+  {
+    "article_number": "ET-3002",
+    "name": "Antriebsmotor 1,5 kW",
+    "category": "spare_part",
+    "description": "Drehstrom-Getriebemotor 1,5 kW als Ersatz für Antriebe breiterer und schwerer Gurtförderer. Auch: Motor groß, Förderbandmotor 1,5, Antrieb 1,5 kW.",
+    "technical_data": {
+      "power_kw": 1.5,
+      "voltage_v": 400,
+      "speed_rpm": 1400
+    },
+    "list_price": 560.0,
+    "price_unit": "piece",
+    "lead_time_days": 7,
+    "is_active": true
+  },
+  {
+    "article_number": "ET-3003",
+    "name": "Getriebe",
+    "category": "spare_part",
+    "description": "Stirnradgetriebe für Förderantriebe, Übersetzung 1:20. Auch: Untersetzungsgetriebe, Getriebekasten, Förderbandgetriebe.",
+    "technical_data": {
+      "ratio": "1:20",
+      "max_torque_nm": 180
+    },
+    "list_price": 690.0,
+    "price_unit": "piece",
+    "lead_time_days": 14,
+    "is_active": true
+  },
+  {
+    "article_number": "ET-3004",
+    "name": "Umlenkrolle",
+    "category": "spare_part",
+    "description": "Umlenkrolle für das Bandende, Durchmesser 100 mm, mit Kugellagern. Auch: Umlenktrommel, Bandrolle, Endrolle.",
+    "technical_data": {
+      "diameter_mm": 100,
+      "face_width_mm": 550,
+      "material": "Stahl, verzinkt"
+    },
+    "list_price": 235.0,
+    "price_unit": "piece",
+    "lead_time_days": 10,
+    "is_active": true
+  },
+  {
+    "article_number": "ET-3005",
+    "name": "Antriebstrommel",
+    "category": "spare_part",
+    "description": "Gummierte Antriebstrommel für Schwerlast-Gurtförderer, Durchmesser 200 mm. Auch: Antriebsrolle, Treibtrommel, Antriebswalze.",
+    "technical_data": {
+      "diameter_mm": 200,
+      "face_width_mm": 850,
+      "surface": "Gummierung genutet"
+    },
+    "list_price": 780.0,
+    "price_unit": "piece",
+    "lead_time_days": 21,
+    "is_active": true
+  },
+  {
+    "article_number": "ET-3006",
+    "name": "Tragrolle",
+    "category": "spare_part",
+    "description": "Tragrolle für den Untergurt, Durchmesser 50 mm. Auch: Stützrolle, Laufrolle, Gurtstützrolle.",
+    "technical_data": {
+      "diameter_mm": 50,
+      "face_width_mm": 550,
+      "material": "Stahl, verzinkt"
+    },
+    "list_price": 38.5,
+    "price_unit": "piece",
+    "lead_time_days": 3,
+    "is_active": true
+  },
+  {
+    "article_number": "ET-3007",
+    "name": "Fördergurt",
+    "category": "spare_part",
+    "description": "Fördergurt als Meterware, Breite nach Anlage wählen, geeignet für allgemeine Fördertechnik. Auch: Transportband, Gurtband, Gummiband, Bandmaterial.",
+    "technical_data": {
+      "material": "PVC auf Polyestergewebe",
+      "thickness_mm": 2,
+      "available_widths_mm": [400, 500, 800]
+    },
+    "list_price": 54.0,
+    "price_unit": "meter",
+    "lead_time_days": 12,
+    "is_active": true
+  },
+  {
+    "article_number": "ET-3008",
+    "name": "Gurtverbinder",
+    "category": "spare_part",
+    "description": "Mechanischer Verbinder zum Schließen eines Fördergurts, Satz für 500 mm Breite. Auch: Gurtschloss, Bandverbinder, Scharnierverbinder.",
+    "technical_data": {
+      "width_mm": 500,
+      "material": "Edelstahl"
+    },
+    "list_price": 46.0,
+    "price_unit": "piece",
+    "lead_time_days": 2,
+    "is_active": true
+  },
+  {
+    "article_number": "ET-3009",
+    "name": "Lagersatz",
+    "category": "spare_part",
+    "description": "Satz Rillenkugellager mit Dichtungen für Rollen und Trommeln. Auch: Lager, Kugellagersatz, Wälzlager.",
+    "technical_data": {
+      "bearing_type": "Rillenkugellager",
+      "inner_diameter_mm": 25,
+      "pieces_per_set": 2
+    },
+    "list_price": 72.0,
+    "price_unit": "piece",
+    "lead_time_days": 5,
+    "is_active": true
+  },
+  {
+    "article_number": "ET-3010",
+    "name": "Frequenzumrichter",
+    "category": "spare_part",
+    "description": "Frequenzumrichter 1,5 kW zur Drehzahlsteuerung von Förderantrieben, Nachfolger der alten Steuerung. Auch: Frequenzregler, FU, Drehzahlsteller.",
+    "technical_data": {
+      "power_kw": 1.5,
+      "voltage_v": 400,
+      "ip_rating": "IP20"
+    },
+    "list_price": 610.0,
+    "price_unit": "piece",
+    "lead_time_days": 9,
+    "is_active": true
+  },
+  {
+    "article_number": "ET-3011",
+    "name": "Gurtabstreifer",
+    "category": "spare_part",
+    "description": "Abstreifer mit Polyurethan-Klinge, hält den Gurt sauber. Auch: Abstreifer, Bandreiniger, Gurtreiniger.",
+    "technical_data": {
+      "width_mm": 650,
+      "blade_material": "Polyurethan"
+    },
+    "list_price": 128.0,
+    "price_unit": "piece",
+    "lead_time_days": 8,
+    "is_active": true
+  },
+  {
+    "article_number": "ET-3012",
+    "name": "Not-Aus-Schalter",
+    "category": "spare_part",
+    "description": "Not-Aus-Taster mit Verriegelung für Förderanlagen und Einhausungen. Auch: Notaus, Not-Halt-Taster, Pilztaster.",
+    "technical_data": {
+      "contacts": "2 Öffner",
+      "ip_rating": "IP65",
+      "colour": "rot auf gelb"
+    },
+    "list_price": 64.0,
+    "price_unit": "piece",
+    "lead_time_days": 2,
+    "is_active": true
+  },
+  {
+    "article_number": "ET-3013",
+    "name": "Modularband-Glied",
+    "category": "spare_part",
+    "description": "Ersatzmodule für Modularbandförderer als Meterware, Breite 600 mm. Auch: Gliederband-Ersatz, Kunststoffglieder, Bandmodule.",
+    "technical_data": {
+      "width_mm": 600,
+      "material": "Polypropylen",
+      "pitch_mm": 25
+    },
+    "list_price": 112.0,
+    "price_unit": "meter",
+    "lead_time_days": 15,
+    "is_active": true
+  },
+  {
+    "article_number": "ET-3014",
+    "name": "Steuerung Typ alt",
+    "category": "spare_part",
+    "description": "Ausgelaufene Steuerung für ältere Kurvenförderer, nicht mehr im Sortiment. Nachfolger ist der Frequenzumrichter ET-3010. Auch: Steuergerät alt, Steuerbox Kurvenförderer.",
+    "technical_data": {
+      "voltage_v": 400,
+      "successor": "ET-3010"
+    },
+    "list_price": 1450.0,
+    "price_unit": "piece",
+    "lead_time_days": 30,
+    "is_active": false
+  },
+  {
+    "article_number": "ET-3015",
+    "name": "Spannvorrichtung",
+    "category": "spare_part",
+    "description": "Spindel-Spannvorrichtung zum Nachspannen des Gurts. Auch: Bandspanner, Gurtspannung, Spannstation.",
+    "technical_data": {
+      "travel_mm": 100,
+      "material": "Stahl, verzinkt"
+    },
+    "list_price": 195.0,
+    "price_unit": "piece",
+    "lead_time_days": 8,
+    "is_active": true
+  },
+  {
+    "article_number": "ET-3016",
+    "name": "Bandlaufsensor",
+    "category": "spare_part",
+    "description": "Sensor zur Überwachung des Gurtlaufs, meldet seitliches Wandern. Auch: Bandschieflaufwächter, Schieflaufschalter, Gurtlaufwächter.",
+    "technical_data": {
+      "output": "Schließer, 24 V",
+      "ip_rating": "IP67"
+    },
+    "list_price": 88.0,
+    "price_unit": "piece",
+    "lead_time_days": 6,
+    "is_active": true
+  },
+  {
+    "article_number": "WV-4001",
+    "name": "Wartungsvertrag Basis",
+    "category": "service_contract",
+    "description": "Jährliche Inspektion einer Förderanlage mit Sichtprüfung und Schmierung, Preis je Anlage und Jahr. Auch: Inspektionsvertrag, Servicevertrag Basis, Wartungspaket.",
+    "technical_data": {
+      "visits_per_year": 1,
+      "scope": "Sichtprüfung, Schmierung"
+    },
+    "list_price": 960.0,
+    "price_unit": "year",
+    "lead_time_days": 5,
+    "is_active": true
+  },
+  {
+    "article_number": "WV-4002",
+    "name": "Wartungsvertrag Plus",
+    "category": "service_contract",
+    "description": "Zwei Inspektionen pro Jahr mit Verschleißteilprüfung und Einstellarbeiten, Preis je Anlage und Jahr. Auch: Servicevertrag Plus, erweiterter Wartungsvertrag.",
+    "technical_data": {
+      "visits_per_year": 2,
+      "scope": "Sichtprüfung, Schmierung, Verschleißteilprüfung, Einstellarbeiten"
+    },
+    "list_price": 1880.0,
+    "price_unit": "year",
+    "lead_time_days": 5,
+    "is_active": true
+  },
+  {
+    "article_number": "WV-4003",
+    "name": "Wartungsvertrag Premium",
+    "category": "service_contract",
+    "description": "Vier Inspektionen pro Jahr mit Verschleißteilprüfung und Dokumentation, Preis je Anlage und Jahr. Auch: Servicevertrag Premium, Vollwartung.",
+    "technical_data": {
+      "visits_per_year": 4,
+      "scope": "Sichtprüfung, Schmierung, Verschleißteilprüfung, Einstellarbeiten, Dokumentation"
+    },
+    "list_price": 3450.0,
+    "price_unit": "year",
+    "lead_time_days": 10,
+    "is_active": true
+  },
+  {
+    "article_number": "WV-4004",
+    "name": "Einzelinspektion vor Ort",
+    "category": "service_contract",
+    "description": "Einmaliger Inspektionstermin vor Ort ohne Vertragsbindung, Preis je Einsatz. Auch: Einzelwartung, Wartungseinsatz, Servicetermin.",
+    "technical_data": {
+      "visits": 1,
+      "scope": "Sichtprüfung, Schmierung"
+    },
+    "list_price": 380.0,
+    "price_unit": "piece",
+    "lead_time_days": 14,
+    "is_active": true
+  },
+  {
+    "article_number": "WV-4005",
+    "name": "Notdienst-Bereitschaft",
+    "category": "service_contract",
+    "description": "Vertrag über priorisierte Bearbeitung von Störungen außerhalb der Regelzeiten, Preis je Anlage und Jahr. Auch: Bereitschaftsvertrag, Störungsdienst, Rufbereitschaft.",
+    "technical_data": {
+      "coverage": "Störungsmeldung außerhalb der Regelzeiten",
+      "priority": "vorrangige Bearbeitung"
+    },
+    "list_price": 2100.0,
+    "price_unit": "year",
+    "lead_time_days": 10,
+    "is_active": true
+  }
+]

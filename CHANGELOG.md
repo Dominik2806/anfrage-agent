@@ -16,4 +16,5 @@ Platzhalter und zusammengesetzte Namen für .env, Schreibzugriffe auf Hooks und 
 * F02: Hooks für Claude Code (Schutz für .env-Dateien und main, automatische Formatierung) mit Testskript
 * F03: Subagents (code-reviewer, security-reviewer, test-writer) und Skills (adr-schreiben, eval-fall-anlegen)
 * F04: CI-Pipeline mit Hook-Tests, Formatierungsprüfung und Meldung geänderter Hooks, Tests und Pipeline; `.gitattributes` für einheitliche Zeilenenden; Pflichtprüfungen im Ruleset
+* F05: Datenmodell und Schema mit Constraint-Tests; synthetische Testdaten (40 Artikel, 21 Kunden, 35 Kontakte, 77 Aktivitäten, 18 Rabattregeln, 24 Zuordnungen von Ersatzteil zu Anlage) und Richtlinien (Tonalität, Eskalation, Signatur, generierte rabatte.md); Befüllbefehl python -m db.seed mit Löschschutz (Bestätigung durch Hostnamen) und Konsistenzprüfungen; psycopg und pytest als Entwicklungsabhängigkeiten (requirements-dev.txt); der Job Schema-Tests führt tests/seed mit aus
 
