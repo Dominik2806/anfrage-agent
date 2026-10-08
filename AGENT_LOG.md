@@ -16,6 +16,51 @@ und welche Konsequenz daraus folgte. Neueste Einträge stehen oben.
 
 ## Einträge
 
+### 2026-10-08 · F07 · Regex für die DATABASE_URL-Prüfung traf einen eigenen Bezeichner (Test von Claude Code)
+- **Aufgabe:** In `test_package_has_no_database_access` sollte das nackte `DATABASE_URL` (Variable des
+  Seed-Skripts) im Paket verboten bleiben, `MCP_SERVER_DATABASE_URL` aber erlaubt sein.
+- **Verhalten des Agenten:** Claude Code schlug `(?<!MCP_SERVER_)DATABASE_URL` vor und baute es so ein.
+- **Fehler:** Die Regex trifft auch den Bezeichner `DATABASE_URL_VAR` in `config.py`: Vor `DATABASE_URL` steht dort
+  kein `MCP_SERVER_`. Der Test scheiterte an erlaubtem Code. Dazu war die Meldung zum erwarteten Ergebnis des
+  Etappe-2-Laufs („Erwartetes Rot“) widersprüchlich formuliert, und der Config-Test auf `repr`/`str` lief vor der
+  Implementierung leer durch, weil er `database_url` nicht vorher prüfte (ein Test, der vor der Implementierung
+  grün ist, hätte auffallen müssen).
+- **Entdeckung:** Lauf durch den Menschen; die Rot-Erwartung und der leere Durchlauf im Review.
+- **Korrektur:** `\bDATABASE_URL\b` statt des Lookbehinds (der Unterstrich gehört zum Wort, daher trifft die Regex
+  weder `MCP_SERVER_DATABASE_URL` noch `DATABASE_URL_VAR`); der repr-Test prüft zuerst
+  `config.database_url == GOOD_URL`.
+- **Konsequenz:** Eine Regex gegen die Namen im Paket prüfen, bevor sie eingebaut wird. Erwartete Ergebnisse eines
+  roten Laufs nur nennen, wenn sie einzeln geprüft sind.
+
+### 2026-10-08 · F07 · URL-Tabellen deckten nicht alle Ablehnungsgründe von guard.py ab (Test von Claude Code)
+- **Aufgabe:** Paritätstest zwischen `hoffmann_data/dburl.py` und `db/seed/guard.py`: Was das Seed-Skript
+  ablehnt, lehnt `dburl` auch ab. Die Tabellen `DBURL_VALID` und `DBURL_INVALID` sollten jeden Ablehnungsgrund
+  abdecken.
+- **Verhalten des Agenten:** Die Tabellen wurden aus der Beschreibung der Regeln zusammengestellt, ohne jede
+  Verzweigung in `guard.py` einzeln gegenzuprüfen.
+- **Fehler:** Es fehlten Fälle für: IPv6 ohne schließende Klammer, `?` vor dem `@` im Passwort, Parametername in
+  Großbuchstaben (`HOST=`), Datenbankname zu lang, ungültiges UTF-8 im Namen und Schrägstrich im Namen. Bei den
+  gültigen URLs fehlten: großgeschriebener Host, prozentkodiertes Passwort, Komma im Passwort, weitere
+  Parameter neben `sslmode` und ein Datenbankname mit genau 63 Zeichen. Der Paritätstest hätte dadurch eine
+  zu lockere `dburl` nicht bemerkt.
+- **Entdeckung:** Review des Chat-Assistenten gegen `guard.py` (Commit `c293e51`).
+- **Korrektur:** Elf Fälle ergänzt (sechs ungültige, fünf gültige).
+- **Konsequenz:** Bei Paritätstests gegen bestehenden Code jede Verzweigung der Vorlage einzeln in der Tabelle
+  abhaken. Vermerkt in `docs/plans/F07-stand.md` (Abschnitt g).
+
+### 2026-10-08 · F07 · UPDATE-Testfall prüfte nicht die Rechte (Test von Claude Code)
+- **Aufgabe:** `test_role_cannot_write` sollte zeigen, dass die lesende Rolle `data_service_ro` auf den fünf
+  Tabellen nicht schreiben darf (`InsufficientPrivilege`).
+- **Verhalten des Agenten:** Der UPDATE-Fall lautete `UPDATE {} SET id = id WHERE false`.
+- **Fehler:** Die Spalte `id` ist `GENERATED ALWAYS`. PostgreSQL meldet dafür „column id can only be updated to
+  DEFAULT“, und zwar vor der Rechteprüfung. Der Test erwartete `InsufficientPrivilege` und konnte so nicht grün
+  werden, obwohl die Rolle korrekt eingeschränkt war.
+- **Entdeckung:** Review des Chat-Assistenten (Commit `73e4d1b`), gegen PostgreSQL 16 bestätigt: `SET id = DEFAULT
+  WHERE false` liefert für alle fünf Tabellen SQLSTATE 42501.
+- **Korrektur:** Der Fall lautet `UPDATE {} SET id = DEFAULT WHERE false`, mit einem Kommentar zum Grund.
+- **Konsequenz:** Rechtetests auf Identity-Spalten immer mit `SET id = DEFAULT`. Vermerkt in
+  `docs/plans/F07-stand.md` (Abschnitt g).
+
 ### 2026-10-08 · F06 · Befunde der Reviewer zum Datenservice (Code von Claude Code)
 - **Aufgabe:** Review von F06 vor dem Pull Request mit code-reviewer und security-reviewer
   (mcp-server/hoffmann_data, tests/mcp_server, Doku, CI-Job).
