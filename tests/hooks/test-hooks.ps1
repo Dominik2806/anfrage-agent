@@ -52,6 +52,7 @@ Check "Grep mit glob .env*" $h @{ tool_name = "Grep"; tool_input = @{ pattern = 
 Check "Write mit Text '.env' im Inhalt (erlaubt)" $h @{ tool_name = "Write"; tool_input = @{ file_path = "docs\x.md"; content = "Siehe .env" } } 0
 Check "unlesbare Eingabe wird blockiert" $h "das ist kein json" 2
 Check "Commit-Text mit .env (bekannte Falsch-Blockade)" $h (BashCall 'git commit -m "ignore .env"' $proj) 2
+Check "Bash echo mit eckiger Klammer im Text (harmlos)" $h (BashCall 'echo "[KLÄREN: Test]"' $proj) 0
 Gap "Bash grep -r KEY . (durchsucht auch .env)" $h (BashCall "grep -r KEY ." $proj)
 
 $py = "python -c " + [char]34 + "open('.'+'env')" + [char]34
@@ -329,6 +330,7 @@ Check "cd .claude; cd hooks; echo x > a.ps1" $h (BashCall "cd .claude; cd hooks;
 Check "Set-Location .claude, dann relativer Pfad" $h (BashCall "Set-Location .claude; Set-Content hooks/block-env.ps1 x" $proj) 2
 Check 'Variable mit .claude, dann sc' $h (BashCall '$p=''.claude''; sc "$p/hooks/x" y' $proj) 2
 Check "Platzhalter .cl*/hooks/..." $h (BashCall "sc .cl*/hooks/block-env.ps1 x" $proj) 2
+Check "Python-Listenkomprehension mit eckiger Klammer (harmlos)" $h (BashCall 'python -c "print([m for m in x])"' $proj) 0
 Check "Remove-Item -Recurse -Force *" $h (BashCall "Remove-Item -Recurse -Force *" $proj) 2
 Check "Arbeitsverzeichnis im Hook-Ordner: Umleitung" $h (BashCall "echo x > a.ps1" $hookdir) 2
 Check "Arbeitsverzeichnis im Hook-Ordner: Set-Content" $h (BashCall "Set-Content block-env.ps1 x" $hookdir) 2

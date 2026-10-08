@@ -16,6 +16,22 @@ und welche Konsequenz daraus folgte. Neueste Einträge stehen oben.
 
 ## Einträge
 
+### 2026-10-08 · F02 · Hooks blockieren harmlose Befehle mit eckiger Klammer
+- **Aufgabe:** Fehlalarm der Hooks klären. Befehle mit einer einzelnen eckigen Klammer wurden blockiert,
+  obwohl sie weder Schlüsseldateien noch die Schutzpfade betrafen.
+- **Verhalten des Agenten:** block-env.ps1 und block-guard-paths.ps1 werteten einen Fehler beim
+  Platzhaltervergleich als Treffer und blockierten den Aufruf.
+- **Fehler:** -like wirft einen Fehler, wenn ein [ kein passendes ] hat. Der catch-Zweig wertete jeden
+  Fehler als Treffer. Beide Skripte hatten dieselbe Logik.
+- **Entdeckung:** Mehrere harmlose Befehle wurden in Claude Code blockiert. Die Testsuite fand das nicht,
+  weil sie die Hooks direkt aufruft und nicht über Claude Code. Die erste Vermutung des KI-Assistenten im
+  Chat (Zeilen mit einer 2) war unbelegt und wurde zurückgenommen. Die Ursache ist das [.
+- **Korrektur:** Zuerst zwei rote Tests (echo mit eckiger Klammer, Python-Listenkomprehension), dann die
+  Funktion Get-SafePattern in beiden Hooks. Ungleich viele [ und ] werden wörtlich verglichen.
+  Danach 349 Tests, 0 Fehler. Code vom KI-Assistenten im Chat.
+- **Konsequenz:** Keine neue Regel. Die Restlücken der Hooks bleiben in Issue #6. Die Suite prüft die
+  Hooks direkt, deshalb gehört nach Hook-Änderungen ein echter Befehl in Claude Code dazu.
+
 ### 2026-10-07 · F05 · Befunde der Reviewer zum Befüllskript (Code von Claude Code)
 - **Aufgabe:** Review von F05 Teil 2 vor dem Pull Request mit code-reviewer und security-reviewer.
 - **Verhalten des Agenten:** Claude Code hatte Löschschutz, Schreiber, Einstiegspunkt und Tests geliefert, jede Datei nach meiner Freigabe, die Tests ohne Datenbank lokal grün.
