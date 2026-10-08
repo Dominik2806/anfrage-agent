@@ -28,10 +28,14 @@ Die Werte kommen aus der Umgebung, nie aus einer Datei im Projekt. Vorlage: `.en
 
 | Variable | Pflicht | Bedeutung |
 |---|---|---|
-| `MCP_SERVER_TOKEN` | ja | Zugangstoken. Mindestens 32 Zeichen, nur druckbare ASCII-Zeichen, keine Leerzeichen, Tabulatoren oder Zeilenumbrüche. Ein ungültiges Token wird abgelehnt, nicht gekürzt. |
+| `MCP_SERVER_TOKEN` | ja | Zugangstoken. Mindestens 32 Zeichen, davon mindestens 10 verschiedene; nur druckbare ASCII-Zeichen, keine Leerzeichen, Tabulatoren oder Zeilenumbrüche. Ein ungültiges Token wird abgelehnt, nicht gekürzt. Leer ist immer ein Fehler. |
 | `MCP_SERVER_HOST` | nein | Adresse, an die der Server bindet. Standard `127.0.0.1`. Andere Werte als `127.0.0.1`, `localhost` und `::1` brauchen `MCP_SERVER_ALLOWED_HOSTS`. |
 | `MCP_SERVER_PORT` | nein | Port von 1 bis 65535. Standard `8000`. |
 | `MCP_SERVER_ALLOWED_HOSTS` | nur bei Host außer Loopback | Erlaubte Werte des `Host`-Headers, kommagetrennt. Siehe unten. |
+
+Ist `MCP_SERVER_HOST`, `MCP_SERVER_PORT` oder `MCP_SERVER_ALLOWED_HOSTS` leer oder besteht nur aus
+Leerzeichen, gilt sie als nicht gesetzt (Standardwert). So bleibt eine kopierte `.env.example` mit leeren Zeilen
+unschädlich.
 
 Token erzeugen:
 
@@ -42,8 +46,10 @@ python -c "import secrets; print(secrets.token_urlsafe(32))"
 Das Token gehört in eine Datei oder einen Schlüsselspeicher außerhalb des Projektordners, nie ins Repository.
 
 ## Zugangsschutz
-- Jede Anfrage braucht genau den Header `Authorization: Bearer <token>`. Groß-/Kleinschreibung des Schemas
-  und zusätzliche Leerzeichen werden abgelehnt. Das Token in der URL gilt nicht.
+- Jede Anfrage braucht genau den Header `Authorization: Bearer <token>`. Leerzeichen am Anfang oder Ende des
+  Headerwerts entfernt schon der Webserver (HTTP-Regel). Abgelehnt werden Abweichungen im Inneren (zwei
+  Leerzeichen, Tabulator) und andere Schreibweisen des Schemas (`bearer`, `BEARER`). Die Tests prüfen das
+  auf App-Ebene. Das Token in der URL gilt nicht.
 - Jede Route ohne gültiges Token antwortet mit 401 und immer demselben Text, auch Pfade, die es nicht gibt.
   Der Vergleich läuft in konstanter Zeit (`hmac.compare_digest`).
 - WebSocket-Verbindungen werden abgelehnt.
@@ -51,6 +57,9 @@ Das Token gehört in eine Datei oder einen Schlüsselspeicher außerhalb des Pro
 - Kein Zugriffsprotokoll: uvicorn läuft mit `access_log=False`, damit Pfad und Query (und ein falsch
   platziertes Token) nicht im Protokoll landen. Das SDK protokolliert abgelehnte Host-/Origin-Werte,
   das ist Fremdtext und enthält nie das Token.
+- Eine Anfrage darf höchstens 256 KiB groß sein, größere Anfragen mit gültigem Token bekommen 413. Ohne
+  gültiges Token bleibt es bei 401. Eingabelängen je Werkzeug (Felder wie Suchtext oder Artikelnummer)
+  kommen mit F07, wenn die Werkzeuge Parameter bekommen.
 - Der Server arbeitet zustandslos (keine Sitzungen). Eine Anfrage braucht kein `initialize`.
   Aufruf: `POST /mcp` mit `Content-Type: application/json` und `Accept: application/json, text/event-stream`;
   die Antwort kann ein Ereignisstrom (SSE) sein.
@@ -92,8 +101,9 @@ unverschlüsselt. Es gibt ein gemeinsames Token für alle Clients, ohne Rotation
 `docs/adr/0003-token-pruefung-eigene-middleware.md`.
 
 ## Hinweis zu PowerShell 5.1
-Der Server antwortet in UTF-8, nennt aber keinen Zeichensatz. Windows PowerShell 5.1 zeigt solche Antworten
-als Latin-1 an, Umlaute wirken dann falsch (z. B. „ü“ als „Ã¼“). Der Server ist korrekt, es ist eine Eigenheit
+Der Server antwortet in UTF-8. Die 401-Antwort nennt das ausdrücklich (`charset=utf-8`), die Antwort als
+Ereignisstrom (`text/event-stream`) nennt keinen Zeichensatz. Windows PowerShell 5.1 zeigt UTF-8-Antworten ohne
+Zeichensatz als Latin-1 an, Umlaute wirken dann falsch (z. B. „ü“ als „Ã¼“). Der Server ist korrekt, es ist eine Eigenheit
 der Anzeige. Die Antwort mit einem Werkzeug lesen, das UTF-8 voraussetzt, oder in PowerShell 7 prüfen.
 
 ## Tests

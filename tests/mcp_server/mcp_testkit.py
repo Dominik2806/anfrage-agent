@@ -21,6 +21,8 @@ TOOL_NAMES = {"search_products", "get_product", "find_customer", "create_lead", 
 RESOURCE_URIS = {"policy://tonalitaet", "policy://rabatte"}
 PROMPT_NAMES = {"antwort_entwurf"}
 NOT_IMPLEMENTED = "noch nicht implementiert"
+INTERNAL_ERROR_CODE = -32603
+MAX_REQUEST_BODY_BYTES = 256 * 1024
 
 RPC_HEADERS = {
     "Content-Type": "application/json",

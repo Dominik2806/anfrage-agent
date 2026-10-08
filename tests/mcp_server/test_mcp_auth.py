@@ -14,6 +14,11 @@ def _post(client: TestClient, headers: dict[str, str] | None = None, path: str =
     return client.post(path, json=TOOLS_LIST, headers={**RPC_HEADERS, **(headers or {})})
 
 
+def _post_with_header_list(client: TestClient, extra: list[tuple[str, str]]) -> Any:
+    """Wie _post, aber mit einer Liste von Headern, damit derselbe Name mehrfach vorkommen kann."""
+    return client.post(MCP_PATH, json=TOOLS_LIST, headers=[*RPC_HEADERS.items(), *extra])
+
+
 def test_without_token_returns_401(client: TestClient) -> None:
     response = _post(client)
     assert response.status_code == 401
@@ -60,7 +65,11 @@ def test_other_schemes_return_401(client: TestClient, token: str, scheme: str) -
 def test_correct_token_in_wrong_header_form_returns_401(
     client: TestClient, token: str, form: str
 ) -> None:
-    """Akzeptiert wird nur genau "Bearer " + Token, Schreibweise und Abstände ändern wir nicht."""
+    """Akzeptiert wird nur genau "Bearer " + Token, Schreibweise und Abstände ändern wir nicht.
+
+    Das gilt auf App-Ebene. Leerzeichen am Anfang oder Ende des Headerwerts entfernt über ein echtes
+    Netz schon der Webserver (HTTP-Regel); diese Fälle prüft der Test hier nur an der App selbst.
+    """
     assert _post(client, {"Authorization": form.format(t=token)}).status_code == 401
 
 
@@ -128,10 +137,11 @@ def test_unauthorized_answer_has_no_oauth_hints(client: TestClient) -> None:
     assert "oauth" not in response.text.lower()
 
 
-def test_comparison_uses_hmac_compare_digest(
-    client: TestClient, token: str, monkeypatch: pytest.MonkeyPatch
+@pytest.mark.parametrize("case", ["fehlt", "falsch", "doppelt"])
+def test_comparison_uses_hmac_compare_digest_exactly_once(
+    client: TestClient, token: str, monkeypatch: pytest.MonkeyPatch, case: str
 ) -> None:
-    """Vergleich in konstanter Zeit: hmac.compare_digest wird mit Bytes aufgerufen."""
+    """Vergleich in konstanter Zeit: genau ein Aufruf mit Bytes, auch wenn der Header fehlt."""
     import hmac
 
     from hoffmann_data import auth
@@ -145,10 +155,39 @@ def test_comparison_uses_hmac_compare_digest(
 
     monkeypatch.setattr(auth.hmac, "compare_digest", spy)
 
-    _post(client, {"Authorization": "Bearer " + "q" * len(token)})
+    if case == "fehlt":
+        response = _post(client)
+    elif case == "falsch":
+        response = _post(client, {"Authorization": "Bearer " + "q" * len(token)})
+    else:
+        response = _post_with_header_list(
+            client, [("Authorization", f"Bearer {token}"), ("Authorization", f"Bearer {token}")]
+        )
 
-    assert calls, "hmac.compare_digest wurde nicht aufgerufen"
+    assert response.status_code == 401
+    assert len(calls) == 1, f"hmac.compare_digest wurde {len(calls)}-mal aufgerufen"
     assert all(isinstance(a, bytes) and isinstance(b, bytes) for a, b in calls)
+
+
+def test_two_authorization_headers_return_401_even_if_one_is_correct(
+    client: TestClient, token: str
+) -> None:
+    good = ("Authorization", f"Bearer {token}")
+    wrong = ("Authorization", "Bearer " + "q" * len(token))
+    assert _post_with_header_list(client, [good, good]).status_code == 401
+    assert _post_with_header_list(client, [good, wrong]).status_code == 401
+    assert _post_with_header_list(client, [wrong, good]).status_code == 401
+
+
+def test_middleware_rejects_an_empty_token() -> None:
+    """Der Schutz darf nicht allein an load_config hängen: Ein leeres Token baut keine Middleware."""
+    from hoffmann_data.auth import BearerTokenMiddleware
+
+    async def app(scope: Any, receive: Any, send: Any) -> None:
+        raise AssertionError("darf nicht aufgerufen werden")
+
+    with pytest.raises(ValueError):
+        BearerTokenMiddleware(app, "")
 
 
 def test_host_and_origin_are_checked_after_valid_token(
@@ -181,3 +220,20 @@ def test_host_check_uses_allowed_hosts_for_non_loopback(
         assert _post(c, headers).status_code == 200
         assert _post(c, {**headers, "Host": "evil.example"}).status_code == 421
         assert _post(c, {**headers, "Host": "127.0.0.1:8000"}).status_code == 421
+
+
+def test_non_loopback_host_rejects_any_origin(make_app: Callable[..., Any], token: str) -> None:
+    """Bei einem Host außer Loopback ist keine Origin erlaubt (README): jeder Origin-Header ergibt 403."""
+    app = make_app(
+        {
+            "MCP_SERVER_TOKEN": token,
+            "MCP_SERVER_HOST": "0.0.0.0",
+            "MCP_SERVER_ALLOWED_HOSTS": "daten.example.org",
+        }
+    )
+    headers = {"Authorization": f"Bearer {token}"}
+    with TestClient(app, base_url="http://daten.example.org") as c:
+        assert _post(c, headers).status_code == 200
+        assert _post(c, {**headers, "Origin": "http://daten.example.org"}).status_code == 403
+        assert _post(c, {**headers, "Origin": "http://evil.example"}).status_code == 403
+        assert _post(c, {**headers, "Origin": "http://localhost:3000"}).status_code == 403

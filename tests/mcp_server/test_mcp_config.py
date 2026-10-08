@@ -4,7 +4,9 @@ from typing import Any
 
 import pytest
 
-LONG = "a" * 40
+# 40 verschiedene Zeichen: Die Fälle mit Leerzeichen/Umbruch sollen an diesen scheitern, nicht an
+# der Mindestzahl verschiedener Zeichen.
+LONG = "abcdefghijklmnopqrstuvwxyz0123456789ABCD"
 
 
 def _load(env: dict[str, str]) -> Any:
@@ -32,7 +34,33 @@ def test_defaults_are_loopback_and_port_8000(token: str) -> None:
 
 
 def test_token_of_exactly_32_chars_is_accepted() -> None:
-    assert _load({"MCP_SERVER_TOKEN": "a" * 32}).token == "a" * 32
+    varied = "abcdefghijklmnopqrstuvwxyz012345"
+    assert len(varied) == 32
+    assert _load({"MCP_SERVER_TOKEN": varied}).token == varied
+
+
+def test_token_with_exactly_10_distinct_chars_is_accepted() -> None:
+    token = "abcdefghij" * 4
+    assert len(set(token)) == 10
+    assert _load({"MCP_SERVER_TOKEN": token}).token == token
+
+
+@pytest.mark.parametrize(
+    "weak",
+    [
+        pytest.param("a" * 32, id="ein-zeichen"),
+        pytest.param("ab" * 16, id="zwei-zeichen"),
+        pytest.param("abcdefghi" * 4, id="neun-verschiedene-zeichen"),
+        pytest.param("a" * 200, id="lang-aber-eintoenig"),
+    ],
+)
+def test_token_with_fewer_than_10_distinct_chars_is_rejected(weak: str) -> None:
+    """Lang genug, aber zu wenig Abwechslung. Die Meldung nennt nur den Variablennamen, nie den Wert."""
+    with pytest.raises(_error_type()) as info:
+        _load({"MCP_SERVER_TOKEN": weak})
+    message = str(info.value)
+    assert "MCP_SERVER_TOKEN" in message
+    assert weak not in message
 
 
 @pytest.mark.parametrize(
@@ -73,11 +101,58 @@ def test_token_with_whitespace_or_non_ascii_is_rejected_not_trimmed(bad_token: s
     assert "MCP_SERVER_TOKEN" in str(info.value)
 
 
-@pytest.mark.parametrize("port", ["abc", "0", "-1", "65536", ""])
+@pytest.mark.parametrize("port", ["abc", "0", "-1", "65536", "80 80", "８０"])
 def test_invalid_port_is_rejected(token: str, port: str) -> None:
     with pytest.raises(_error_type()) as info:
         _load({"MCP_SERVER_TOKEN": token, "MCP_SERVER_PORT": port})
     assert "MCP_SERVER_PORT" in str(info.value)
+
+
+@pytest.mark.parametrize("blank", ["", " ", "   ", "\t", " \t "])
+@pytest.mark.parametrize("name", ["MCP_SERVER_HOST", "MCP_SERVER_PORT", "MCP_SERVER_ALLOWED_HOSTS"])
+def test_blank_optional_variable_counts_as_not_set(token: str, name: str, blank: str) -> None:
+    """Eine leere Zeile wie "MCP_SERVER_PORT=" (z. B. aus .env.example) ändert nichts an den Standardwerten."""
+    config = _load({"MCP_SERVER_TOKEN": token, name: blank})
+    assert config.host == "127.0.0.1"
+    assert config.port == 8000
+    assert tuple(config.allowed_hosts) == ()
+
+
+def test_all_three_optional_variables_blank_use_defaults(token: str) -> None:
+    config = _load(
+        {
+            "MCP_SERVER_TOKEN": token,
+            "MCP_SERVER_HOST": "",
+            "MCP_SERVER_PORT": "  ",
+            "MCP_SERVER_ALLOWED_HOSTS": "",
+        }
+    )
+    assert (config.host, config.port, tuple(config.allowed_hosts)) == ("127.0.0.1", 8000, ())
+
+
+def test_blank_values_do_not_replace_given_ones(token: str) -> None:
+    config = _load(
+        {
+            "MCP_SERVER_TOKEN": token,
+            "MCP_SERVER_HOST": "0.0.0.0",
+            "MCP_SERVER_PORT": "9001",
+            "MCP_SERVER_ALLOWED_HOSTS": "daten.example.org",
+        }
+    )
+    assert (config.host, config.port) == ("0.0.0.0", 9001)
+
+
+def test_non_loopback_host_with_blank_allowed_hosts_is_rejected(token: str) -> None:
+    """Leer heißt nicht gesetzt: Ohne die Liste startet der Server nicht auf einem fremden Host."""
+    with pytest.raises(_error_type()) as info:
+        _load(
+            {
+                "MCP_SERVER_TOKEN": token,
+                "MCP_SERVER_HOST": "0.0.0.0",
+                "MCP_SERVER_ALLOWED_HOSTS": "   ",
+            }
+        )
+    assert "MCP_SERVER_ALLOWED_HOSTS" in str(info.value)
 
 
 def test_port_can_be_set(token: str) -> None:
@@ -108,7 +183,7 @@ def test_non_loopback_host_with_allowed_hosts_is_accepted(token: str) -> None:
     assert tuple(config.allowed_hosts) == ("daten.example.org", "daten.example.org:*")
 
 
-@pytest.mark.parametrize("value", [",", "a.example,,b.example", "   "])
+@pytest.mark.parametrize("value", [",", "a.example,,b.example"])
 def test_empty_entries_in_allowed_hosts_are_rejected(token: str, value: str) -> None:
     with pytest.raises(_error_type()) as info:
         _load(
@@ -124,7 +199,7 @@ def test_empty_entries_in_allowed_hosts_are_rejected(token: str, value: str) -> 
 def test_start_without_token_fails_before_serving(
     capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """main() bricht mit Exit-Code != 0 ab und startet keinen Server."""
+    """main() bricht mit Exit-Code 1 ab und startet keinen Server."""
     import uvicorn
 
     from hoffmann_data.__main__ import main
@@ -139,5 +214,5 @@ def test_start_without_token_fails_before_serving(
     with pytest.raises(SystemExit) as info:
         main({})
 
-    assert info.value.code not in (0, None)
+    assert info.value.code == 1
     assert "MCP_SERVER_TOKEN" in capsys.readouterr().err

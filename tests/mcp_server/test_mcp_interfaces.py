@@ -10,7 +10,13 @@ from collections.abc import Callable
 from typing import Any
 
 import pytest
-from mcp_testkit import NOT_IMPLEMENTED, PROMPT_NAMES, RESOURCE_URIS, TOOL_NAMES
+from mcp_testkit import (
+    INTERNAL_ERROR_CODE,
+    NOT_IMPLEMENTED,
+    PROMPT_NAMES,
+    RESOURCE_URIS,
+    TOOL_NAMES,
+)
 
 Rpc = Callable[..., dict[str, Any]]
 
@@ -64,22 +70,29 @@ def test_each_tool_placeholder_returns_an_error_not_data(rpc: Rpc, tool: str) ->
 def test_each_resource_placeholder_returns_an_error_not_data(rpc: Rpc, uri: str) -> None:
     body = rpc("resources/read", {"uri": uri})
     assert "error" in body and "result" not in body
+    assert body["error"]["code"] == INTERNAL_ERROR_CODE
     assert NOT_IMPLEMENTED in body["error"]["message"]
 
 
 def test_prompt_placeholder_returns_an_error_not_data(rpc: Rpc) -> None:
-    """Der Prompt-Fehler läuft im SDK über ValueError(str(e)). Die Meldung muss beim Client ankommen."""
+    """Das SDK reicht nur MCPError mit Text durch; jede andere Ausnahme wird ersetzt."""
     body = rpc("prompts/get", {"name": "antwort_entwurf", "arguments": {}})
     assert "error" in body and "result" not in body
-    assert NOT_IMPLEMENTED in json.dumps(body, ensure_ascii=False)
+    assert body["error"]["code"] == INTERNAL_ERROR_CODE
+    assert NOT_IMPLEMENTED in body["error"]["message"]
 
 
-def test_unknown_tool_is_an_error(rpc: Rpc) -> None:
+def test_unknown_tool_is_a_tool_error_result(rpc: Rpc) -> None:
+    """Das SDK meldet ein unbekanntes Werkzeug als Ergebnis mit isError, nicht als Protokollfehler."""
     body = rpc("tools/call", {"name": "send_email", "arguments": {}})
-    assert body.get("result", {}).get("isError") is True or "error" in body
+    assert "error" not in body
+    assert body["result"]["isError"] is True
+    assert NOT_IMPLEMENTED not in json.dumps(body, ensure_ascii=False)
 
 
 def test_error_text_does_not_echo_arguments(rpc: Rpc) -> None:
     """Der Platzhalterfehler gibt keine Eingabewerte aus (Kundentext ist Daten, kein Echo)."""
     body = rpc("tools/call", {"name": "search_products", "arguments": {"query": "GEHEIM-4711"}})
-    assert "GEHEIM-4711" not in json.dumps(body, ensure_ascii=False)
+    dumped = json.dumps(body, ensure_ascii=False)
+    assert NOT_IMPLEMENTED in dumped, "es kam nicht der Platzhalterfehler"
+    assert "GEHEIM-4711" not in dumped
