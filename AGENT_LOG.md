@@ -16,6 +16,56 @@ und welche Konsequenz daraus folgte. Neueste Einträge stehen oben.
 
 ## Einträge
 
+### 2026-10-08 · F06 · Befunde der Reviewer zum Datenservice (Code von Claude Code)
+- **Aufgabe:** Review von F06 vor dem Pull Request mit code-reviewer und security-reviewer
+  (mcp-server/hoffmann_data, tests/mcp_server, Doku, CI-Job).
+- **Verhalten des Agenten:** Der Datenservice war umgesetzt, 90 von 90 Tests grün. Beide Reviewer fanden
+  keine Umgehung des Zugangsschutzes und kein Token-Leck, aber Lücken:
+  - M1: nur `mcp` gepinnt, obwohl starlette, uvicorn und mcp-types direkt importiert werden.
+  - M2: Anfragegröße nur durch das SDK-Standardlimit (4 MiB) begrenzt.
+  - M3: Leere optionale Variablen (so steht es in `.env.example`) ließen den Start scheitern.
+  - M4/M5: Fehlercode -32603 stand in der README, aber in keinem Test; der Docstring im Prompt-Test
+    wiederholte die widerlegte Aussage.
+  - N1: Token `"a" * 32` wurde akzeptiert (ein Test belegte es sogar).
+  - N2: `BearerTokenMiddleware("")` war erlaubt.
+  - N5: README und ADR behaupteten, Leerzeichen am Rand des Headerwerts würden abgelehnt; das entfernt über
+    ein echtes Netz schon der Webserver, der Test lief nur auf App-Ebene.
+  - N6/N7: kein Test für doppelte Authorization-Header, `compare_digest` nur bei falschem Token geprüft,
+    mehrere zu schwache Tests (Exit-Code `!= 0` statt 1, unbekanntes Werkzeug mit „oder“, kein Origin-Test
+    für Nicht-Loopback).
+  - Kleinigkeiten: „~40 Zeilen“ im ADR, Zeichensatz-Satz in der README, irreführender Kommentar in `ci.yml`.
+- **Fehler:** Tests und Doku behaupteten mehr, als der Code oder der Test belegte. Die Optionalität der
+  Variablen widersprach der eigenen Vorlage. Zusätzlich führte Claude Code in Etappe (d) ein lesendes
+  `git diff` aus, obwohl „keine Befehle“ abgesprochen war.
+- **Entdeckung:** Reviews durch die Subagents code-reviewer und security-reviewer; die Befunde zu M3 und N1
+  trafen unabhängig voneinander beide.
+- **Korrektur:** Entscheidungen des Menschen: leere optionale Variablen gelten als nicht gesetzt; Token mit
+  mindestens 10 verschiedenen Zeichen; leeres Token in der Middleware ein `ValueError`; doppelte
+  Authorization-Header ergeben 401, `compare_digest` genau einmal auch ohne Header; Fehlercodes in den Tests;
+  Anfragen höchstens 256 KiB (413); starlette, uvicorn und mcp-types fest gepinnt; Doku zu Header-Form,
+  Zeichensatz und Grenzen präzisiert. Zuerst die Tests (Teil 1), danach der Code (Teil 2).
+  Offen und im ADR 0003 vermerkt: GET-Strom auf `/mcp` (F13), getrennte Token und technische Freigabe für
+  `create_lead` (F08).
+- **Konsequenz:** Doku und Tests nicht stärker formulieren, als sie belegt sind. Ein Befehl, den der Mensch
+  ausgeschlossen hat, wird auch dann nicht ausgeführt, wenn er nur lesend ist.
+
+### 2026-10-08 · F06 · Falsche Aussage über die Fehlerweitergabe bei Prompts im SDK (Code von Claude Code)
+- **Aufgabe:** Platzhalter für die acht Schnittstellen des Datenservice, jeder mit dem Fehler „noch nicht
+  implementiert“, auch der Prompt `antwort_entwurf`.
+- **Verhalten des Agenten:** In der Lesephase stand die Aussage, das SDK gebe bei Prompts jede
+  Ausnahme als `ValueError(str(e))` mit unserem Text weiter. Der Prompt-Platzhalter warf daraufhin eine
+  einfache `NotImplementedError`.
+- **Fehler:** Die Aussage stützte sich nur auf `get_prompt` in `server.py`. Dass `prompts/base.py` (`render`)
+  jede Ausnahme außer `MCPError` vorher durch `ValueError("Error rendering prompt ...")` ersetzt, wurde nicht gelesen.
+  Der Text ging verloren, der Client bekam Code 0 und die Allgemeinmeldung.
+- **Entdeckung:** Der Test `test_prompt_placeholder_returns_an_error_not_data` war nach der Implementierung rot
+  (89 von 90 grün). Der Test war vorher als offenes Risiko vermerkt.
+- **Korrektur:** Der Prompt wirft `MCPError(code=INTERNAL_ERROR, message=...)`, die das SDK unverändert
+  durchreicht (`render`, `get_prompt` und der Dispatcher geben sie weiter). Importpfade am Quelltext geprüft.
+  Der Test blieb unverändert.
+- **Konsequenz:** Verhalten fremder Bibliotheken nicht aus einer Stelle im Quelltext folgern, sondern mit einem
+  Test belegen. Regel in `mcp-server/CLAUDE.md` ergänzt.
+
 ### 2026-10-08 · F02 · Hooks blockieren harmlose Befehle mit eckiger Klammer
 - **Aufgabe:** Fehlalarm der Hooks klären. Befehle mit einer einzelnen eckigen Klammer wurden blockiert,
   obwohl sie weder Schlüsseldateien noch die Schutzpfade betrafen.
