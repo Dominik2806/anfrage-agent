@@ -1,6 +1,6 @@
 # ADR 0003: Token-Prüfung des Datenservice durch eigene Middleware, ohne Sitzungen
 
-- Status: Vorgeschlagen
+- Status: Angenommen
 - Datum: 2026-10-08
 
 ## Kontext

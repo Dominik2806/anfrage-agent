@@ -16,6 +16,23 @@ und welche Konsequenz daraus folgte. Neueste Einträge stehen oben.
 
 ## Einträge
 
+### 2026-10-08 · F06 · Falsche Aussage über die Fehlerweitergabe bei Prompts im SDK (Code von Claude Code)
+- **Aufgabe:** Platzhalter für die acht Schnittstellen des Datenservice, jeder mit dem Fehler „noch nicht
+  implementiert“, auch der Prompt `antwort_entwurf`.
+- **Verhalten des Agenten:** In der Lesephase (Etappe a) stand die Aussage, das SDK gebe bei Prompts jede
+  Ausnahme als `ValueError(str(e))` mit unserem Text weiter. Der Prompt-Platzhalter warf daraufhin eine
+  einfache `NotImplementedError`.
+- **Fehler:** Die Aussage stützte sich nur auf `get_prompt` in `server.py`. Dass `prompts/base.py` (`render`)
+  jede Ausnahme außer `MCPError` vorher durch `ValueError("Error rendering prompt ...")` ersetzt, wurde nicht gelesen.
+  Der Text ging verloren, der Client bekam Code 0 und die Allgemeinmeldung.
+- **Entdeckung:** Der Test `test_prompt_placeholder_returns_an_error_not_data` war nach der Implementierung rot
+  (89 von 90 grün). Der Test war vorher als offenes Risiko vermerkt.
+- **Korrektur:** Der Prompt wirft `MCPError(code=INTERNAL_ERROR, message=...)`, die das SDK unverändert
+  durchreicht (`render`, `get_prompt` und der Dispatcher geben sie weiter). Importpfade am Quelltext geprüft.
+  Der Test blieb unverändert.
+- **Konsequenz:** Verhalten fremder Bibliotheken nicht aus einer Stelle im Quelltext folgern, sondern mit einem
+  Test belegen. Regel in `mcp-server/CLAUDE.md` ergänzt.
+
 ### 2026-10-08 · F02 · Hooks blockieren harmlose Befehle mit eckiger Klammer
 - **Aufgabe:** Fehlalarm der Hooks klären. Befehle mit einer einzelnen eckigen Klammer wurden blockiert,
   obwohl sie weder Schlüsseldateien noch die Schutzpfade betrafen.
