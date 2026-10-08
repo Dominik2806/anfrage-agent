@@ -37,12 +37,21 @@ foreach ($f in @(Get-ChildItem -LiteralPath $PSScriptRoot -File -ErrorAction Sil
   $candidates += ('.claude/hooks/' + $f.Name.ToLower())
 }
 
+# Ein [ ohne passendes ] ist kein Platzhalter. -like wirft dann einen Fehler, und der würde blockieren.
+function Get-SafePattern([string]$p) {
+  $open = ([regex]::Matches($p, '\[')).Count
+  $close = ([regex]::Matches($p, '\]')).Count
+  if ($open -ne $close) { return $p.Replace('[', '[[]') }
+  return $p
+}
+
 function Test-Trigger([string]$text) {
   if ($text -match '\.claude|claude~\d|settings\.local\.json') { return $true }
   foreach ($tok in ($text -split '[\s=,;|&(){}<>]+')) {
     if ($tok -match '[*?\[]') {
+      $pattern = Get-SafePattern $tok
       foreach ($c in $candidates) {
-        try { if ($c -like $tok) { return $true } } catch { return $true }
+        try { if ($c -like $pattern) { return $true } } catch { return $true }
       }
     }
   }

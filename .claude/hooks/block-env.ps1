@@ -16,6 +16,15 @@ $tool = [string]$data.tool_name
 # Glob und Grep listen nur Dateinamen oder suchen; ein reiner Platzhalter (*, **/*) ist dort harmlos
 $listingTool = ($tool -eq "Glob") -or ($tool -eq "Grep")
 $msg = "Blockiert: Zugriff auf .env-Dateien ist in diesem Projekt nicht erlaubt. Nutze stattdessen .env.example."
+# Ein [ ohne passendes ] ist kein Platzhalter. -like wirft dann einen Fehler, und der würde blockieren.
+# Ungleich viele [ und ] werden deshalb wörtlich geschrieben ([[] steht für ein echtes [).
+function Get-SafePattern([string]$p) {
+  $open = ([regex]::Matches($p, '\[')).Count
+  $close = ([regex]::Matches($p, '\]')).Count
+  if ($open -ne $close) { return $p.Replace('[', '[[]') }
+  return $p
+}
+
 
 function Stop-Blocked {
   [Console]::Error.WriteLine($msg)
@@ -56,7 +65,8 @@ function Test-EnvName([string]$word, [bool]$isListing) {
   if ($name -match '[*?\[]') {
     if ($isListing -and ($name -match '^[*?.]+$')) { return $false }
     try {
-      foreach ($c in $candidates) { if ($c -like $name) { return $true } }
+      $pattern = Get-SafePattern $name
+      foreach ($c in $candidates) { if ($c -like $pattern) { return $true } }
     } catch { return $true }
   }
   return $false
