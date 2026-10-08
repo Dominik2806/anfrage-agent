@@ -5,7 +5,10 @@ mcp_server), ein Import über den Namen "conftest" könnte die falsche Datei tre
 """
 
 import json
+import re
 import sys
+from collections.abc import Iterator
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 
@@ -13,6 +16,45 @@ ROOT = Path(__file__).resolve().parents[2]
 MCP_SERVER_DIR = ROOT / "mcp-server"
 if str(MCP_SERVER_DIR) not in sys.path:
     sys.path.insert(0, str(MCP_SERVER_DIR))
+
+# Rollen-Skript (F07). Die Tests führen es unter einem Zufallsnamen aus, damit die clusterweite Rolle
+# data_service_ro nicht kollidiert. Ersetzt wird nur der Name, per exakter Textersetzung.
+ROLE_SCRIPT = ROOT / "db" / "roles" / "data_service_ro.sql"
+ROLE_NAME = "data_service_ro"
+# So oft steht der Rollenname im Skript. Festgeschrieben: Ändert sich das Skript, ist die Zahl bewusst
+# anzupassen (sonst könnte die Ersetzung im Test eine Stelle verpassen).
+EXPECTED_ROLE_NAME_COUNT = 12
+ROLE_NAME_PATTERN = re.compile(r"[a-z_][a-z0-9_]{0,62}")
+# Tabellen, die die Rolle lesen darf (discount_rules bewusst nicht, das kommt mit F09)
+READABLE_TABLES = ("products", "product_fits", "customers", "contacts", "activities")
+
+
+def render_role_script(name: str) -> str:
+    """Das Rollen-Skript mit dem Rollennamen `name`. Bricht ab, wenn die Ersetzung nicht sauber greift."""
+    assert ROLE_NAME_PATTERN.fullmatch(name), "ungültiger Rollenname"
+    assert ROLE_NAME not in name or name == ROLE_NAME, (
+        "Testname darf den Originalnamen nicht enthalten"
+    )
+    text = ROLE_SCRIPT.read_text(encoding="utf-8")
+    assert text.count(ROLE_NAME) == EXPECTED_ROLE_NAME_COUNT, "Zahl der Vorkommen weicht ab"
+    rendered = text.replace(ROLE_NAME, name)
+    if name != ROLE_NAME:
+        assert ROLE_NAME not in rendered, "Originalname nach der Ersetzung übrig"
+        assert rendered.count(name) == EXPECTED_ROLE_NAME_COUNT
+    return rendered
+
+
+@contextmanager
+def as_role(conn: Any, role: str) -> Iterator[None]:
+    """Führt den Block unter SET LOCAL ROLE aus und setzt die Rolle am Ende zurück."""
+    from psycopg import sql
+
+    conn.execute(sql.SQL("SET LOCAL ROLE {}").format(sql.Identifier(role)))
+    try:
+        yield
+    finally:
+        conn.execute("RESET ROLE")
+
 
 BASE_URL = "http://127.0.0.1:8000"
 MCP_PATH = "/mcp"
