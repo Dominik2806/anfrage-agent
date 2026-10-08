@@ -13,6 +13,7 @@ PORT_VAR = "MCP_SERVER_PORT"
 ALLOWED_HOSTS_VAR = "MCP_SERVER_ALLOWED_HOSTS"
 
 MIN_TOKEN_LENGTH = 32
+MIN_DISTINCT_TOKEN_CHARS = 10
 DEFAULT_HOST = "127.0.0.1"
 DEFAULT_PORT = 8000
 LOOPBACK_HOSTS = frozenset({"127.0.0.1", "localhost", "::1"})
@@ -49,34 +50,51 @@ def _read_token(env: Mapping[str, str]) -> str:
     token = env.get(TOKEN_VAR, "")
     # Nur druckbare ASCII-Zeichen ohne Leerzeichen (33..126): schließt Leerzeichen, Tabulator,
     # Zeilenumbruch und Nicht-ASCII aus. Der Wert gehört unverändert in einen HTTP-Header.
-    if len(token) < MIN_TOKEN_LENGTH or not all(33 <= ord(c) <= 126 for c in token):
+    # Die Mindestzahl verschiedener Zeichen weist triviale Tokens wie "a" * 32 ab.
+    if (
+        len(token) < MIN_TOKEN_LENGTH
+        or len(set(token)) < MIN_DISTINCT_TOKEN_CHARS
+        or not all(33 <= ord(c) <= 126 for c in token)
+    ):
         raise ConfigError(
             f"{TOKEN_VAR} fehlt oder ist ungültig: mindestens {MIN_TOKEN_LENGTH} Zeichen, "
+            f"davon mindestens {MIN_DISTINCT_TOKEN_CHARS} verschiedene, "
             "nur druckbare ASCII-Zeichen, keine Leerzeichen und keine Zeilenumbrüche."
         )
     return token
 
 
+def _optional(env: Mapping[str, str], name: str) -> str | None:
+    """Wert einer optionalen Variable; leer oder nur Leerraum gilt als nicht gesetzt (None)."""
+    raw = env.get(name)
+    if raw is None or not raw.strip():
+        return None
+    return raw
+
+
 def _read_host(env: Mapping[str, str]) -> str:
-    host = env.get(HOST_VAR, DEFAULT_HOST)
-    if not host or any(c.isspace() for c in host):
-        raise ConfigError(f"{HOST_VAR} ist leer oder enthält Leerzeichen.")
+    host = _optional(env, HOST_VAR)
+    if host is None:
+        return DEFAULT_HOST
+    if any(c.isspace() for c in host):
+        raise ConfigError(f"{HOST_VAR} enthält Leerzeichen.")
     return host
 
 
 def _read_port(env: Mapping[str, str]) -> int:
-    if PORT_VAR not in env:
+    raw = _optional(env, PORT_VAR)
+    if raw is None:
         return DEFAULT_PORT
-    raw = env[PORT_VAR]
     if not (raw.isascii() and raw.isdigit()) or not 1 <= int(raw) <= 65535:
         raise ConfigError(f"{PORT_VAR} muss eine Zahl von 1 bis 65535 sein.")
     return int(raw)
 
 
 def _read_allowed_hosts(env: Mapping[str, str]) -> tuple[str, ...]:
-    if ALLOWED_HOSTS_VAR not in env:
+    raw = _optional(env, ALLOWED_HOSTS_VAR)
+    if raw is None:
         return ()
-    entries = tuple(part.strip() for part in env[ALLOWED_HOSTS_VAR].split(","))
+    entries = tuple(part.strip() for part in raw.split(","))
     if any(not entry or any(c.isspace() for c in entry) for entry in entries):
         raise ConfigError(
             f"{ALLOWED_HOSTS_VAR} enthält einen leeren Eintrag oder Leerzeichen innerhalb eines Eintrags."

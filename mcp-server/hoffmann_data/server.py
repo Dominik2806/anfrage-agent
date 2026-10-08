@@ -18,6 +18,10 @@ from hoffmann_data.config import LOOPBACK_HOSTS, Config
 STREAMABLE_HTTP_PATH = "/mcp"
 NOT_IMPLEMENTED = "Diese Schnittstelle ist noch nicht implementiert."
 
+# Größte erlaubte Anfrage (Auftrag 11.3: Eingaben begrenzen). Das SDK-Standardlimit liegt bei 4 MiB;
+# größere Anfragen mit gültigem Token bekommen 413. Eingabelängen je Werkzeug folgen mit F07.
+MAX_REQUEST_BODY_BYTES = 256 * 1024
+
 # Dieselben Werte, die das SDK für Loopback selbst einsetzt. Wir setzen sie ausdrücklich, damit der
 # Schutz nicht davon abhängt, welchen Host der Aufrufer übergibt.
 _LOOPBACK_ALLOWED_HOSTS = ("127.0.0.1:*", "localhost:*", "[::1]:*")
@@ -113,5 +117,6 @@ def create_app(config: Config) -> ASGIApp:
         stateless_http=True,
         transport_security=transport_security(config),
         host=config.host,
+        max_request_body_size=MAX_REQUEST_BODY_BYTES,
     )
     return BearerTokenMiddleware(sdk_app, config.token)

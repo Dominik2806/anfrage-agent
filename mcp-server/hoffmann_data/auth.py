@@ -21,6 +21,9 @@ _UNAUTHORIZED_HEADERS = [
 
 class BearerTokenMiddleware:
     def __init__(self, app: ASGIApp, token: str) -> None:
+        if not token:
+            # Ohne Token würde "Bearer " als gültig gelten. Die Meldung nennt keinen Wert.
+            raise ValueError("Die Token-Prüfung braucht ein nicht leeres Token.")
         self._app = app
         self._expected = b"Bearer " + token.encode("ascii")
 
