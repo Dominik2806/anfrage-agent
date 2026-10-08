@@ -18,6 +18,8 @@ F10 meldet bei länger laufenden Aufrufen den Fortschritt (Auftrag 6.4) und brau
    (`MCPServer.streamable_http_app`). Sie prüft bei jeder HTTP-Anfrage auf jedem Pfad den Header
    `Authorization: Bearer <token>` mit `hmac.compare_digest`. Jeder Fehlerfall liefert dieselbe 401-Antwort
    mit festem Text. Das Token steht nie in Antwort, Fehlermeldung oder Log.
+   Der Header muss genau `Authorization: Bearer <token>` lauten; Groß-/Kleinschreibung des Schemas und
+   zusätzliche Leerzeichen werden bewusst abgelehnt. WebSocket-Verbindungen werden ohne Token abgewiesen.
 2. Der Start bricht ab, wenn `MCP_SERVER_TOKEN` fehlt, leer oder kürzer als 32 Zeichen ist, ein
    Leerzeichen oder einen Zeilenumbruch enthält oder nicht nur aus druckbaren ASCII-Zeichen besteht.
    Das Token wird nie gekürzt oder bereinigt.

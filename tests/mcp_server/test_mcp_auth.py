@@ -45,6 +45,33 @@ def test_other_schemes_return_401(client: TestClient, token: str, scheme: str) -
     assert _post(client, {"Authorization": f"{scheme} {token}"}).status_code == 401
 
 
+@pytest.mark.parametrize(
+    "form",
+    ["Bearer  {t}", "Bearer\t{t}", "bearer {t}", "BEARER {t}", " Bearer {t}", "Bearer {t} "],
+    ids=[
+        "zwei-leerzeichen",
+        "tabulator",
+        "klein",
+        "gross",
+        "leerzeichen-vorn",
+        "leerzeichen-hinten",
+    ],
+)
+def test_correct_token_in_wrong_header_form_returns_401(
+    client: TestClient, token: str, form: str
+) -> None:
+    """Akzeptiert wird nur genau "Bearer " + Token, Schreibweise und Abstände ändern wir nicht."""
+    assert _post(client, {"Authorization": form.format(t=token)}).status_code == 401
+
+
+def test_websocket_connection_without_token_fails(client: TestClient) -> None:
+    from starlette.websockets import WebSocketDisconnect
+
+    with pytest.raises(WebSocketDisconnect):
+        with client.websocket_connect(MCP_PATH):
+            pass
+
+
 def test_token_without_scheme_returns_401(client: TestClient, token: str) -> None:
     assert _post(client, {"Authorization": token}).status_code == 401
 
