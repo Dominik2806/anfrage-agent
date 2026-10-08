@@ -83,3 +83,85 @@ def parse_rpc_body(response: Any) -> dict[str, Any]:
                 return json.loads(line[len("data:") :].strip())
         raise AssertionError(f"Kein data:-Ereignis im Strom: {response.text!r}")
     return response.json()
+
+
+# Datenbank-URLs für die Tests von dburl.py und für den Paritätstest gegen db/seed/guard.py (F07).
+# Alle Zugangswerte enthalten "geheim", damit Tests prüfen können, dass keine Meldung sie nennt.
+DB_SECRETS = ("geheimuser", "geheimpasswort", "geheimhost", "geheimdb")
+_CRED = "geheimuser:geheimpasswort"
+
+# (id, url): werden angenommen
+DBURL_VALID: list[tuple[str, str]] = [
+    ("localhost", f"postgresql://{_CRED}@localhost:5432/geheimdb"),
+    ("schema-postgres", f"postgres://{_CRED}@127.0.0.1/geheimdb"),
+    ("ipv6-loopback", f"postgresql://{_CRED}@[::1]:5432/geheimdb"),
+    ("remote-require", f"postgresql://{_CRED}@geheimhost.example:5432/geheimdb?sslmode=require"),
+    ("remote-verify-ca", f"postgresql://{_CRED}@geheimhost.example/geheimdb?sslmode=verify-ca"),
+    ("remote-verify-full", f"postgresql://{_CRED}@geheimhost.example/geheimdb?sslmode=verify-full"),
+    (
+        "pooler-benutzer-mit-punkt",
+        "postgresql://data_service_ro.geheimuser:geheimpasswort@geheimhost.example:6543/geheimdb"
+        "?sslmode=require",
+    ),
+]
+
+# (id, url, umgebung): werden abgelehnt. Jeder Grund aus db/seed/guard.py kommt vor, damit der
+# Paritätstest belegt, dass dburl nicht lockerer ist als das Seed-Skript.
+DBURL_INVALID: list[tuple[str, str | None, dict[str, str]]] = [
+    ("none", None, {}),
+    ("leer", "", {}),
+    ("nur-leerzeichen", "   ", {}),
+    ("fremdes-schema", f"mysql://{_CRED}@localhost/geheimdb", {}),
+    ("schema-grossgeschrieben", f"POSTGRESQL://{_CRED}@localhost/geheimdb", {}),
+    ("kein-schema", f"{_CRED}@localhost/geheimdb", {}),
+    ("leerzeichen-vorn", f" postgresql://{_CRED}@localhost/geheimdb", {}),
+    ("leerzeichen-in-url", f"postgresql://{_CRED}@localhost/geheim db", {}),
+    ("zeilenumbruch", f"postgresql://{_CRED}@localhost/geheimdb\n", {}),
+    ("tabulator", f"postgresql://{_CRED}@localhost/geheimdb\t", {}),
+    ("nul", f"postgresql://{_CRED}@localhost/geheimdb\x00", {}),
+    ("nicht-ascii", "postgresql://geheimuser:geheimpasswörter@localhost/geheimdb", {}),
+    ("einzelner-surrogat", f"postgresql://{_CRED}@localhost/\ud800", {}),
+    ("raute-im-passwort", "postgresql://geheimuser:geheim#passwort@localhost/geheimdb", {}),
+    ("zwei-at", "postgresql://geheimuser:geheim@passwort@localhost/geheimdb", {}),
+    ("zwei-hosts", f"postgresql://{_CRED}@localhost,geheimhost.example/geheimdb", {}),
+    ("kein-host-unix-socket", "postgresql:///geheimdb?user=geheimuser", {}),
+    ("prozent-im-host", f"postgresql://{_CRED}@loc%61lhost/geheimdb", {}),
+    ("port-keine-zahl", f"postgresql://{_CRED}@localhost:abc/geheimdb", {}),
+    ("port-zu-gross", f"postgresql://{_CRED}@localhost:99999/geheimdb", {}),
+    ("kein-datenbankname", f"postgresql://{_CRED}@localhost", {}),
+    ("datenbankname-mit-leerzeichen", f"postgresql://{_CRED}@localhost/geheim%20db", {}),
+    ("param-host", f"postgresql://{_CRED}@localhost/geheimdb?host=geheimhost.example", {}),
+    ("param-hostaddr", f"postgresql://{_CRED}@localhost/geheimdb?hostaddr=10.0.0.1", {}),
+    ("param-service", f"postgresql://{_CRED}@localhost/geheimdb?service=geheimdb", {}),
+    ("param-dbname", f"postgresql://{_CRED}@localhost/geheimdb?dbname=geheimdb", {}),
+    ("env-pghostaddr", f"postgresql://{_CRED}@localhost/geheimdb", {"PGHOSTADDR": "10.0.0.1"}),
+    ("env-pgservice", f"postgresql://{_CRED}@localhost/geheimdb", {"PGSERVICE": "geheimdb"}),
+    ("remote-ohne-sslmode", f"postgresql://{_CRED}@geheimhost.example/geheimdb", {}),
+    (
+        "remote-sslmode-disable",
+        f"postgresql://{_CRED}@geheimhost.example/geheimdb?sslmode=disable",
+        {},
+    ),
+    (
+        "remote-sslmode-prefer",
+        f"postgresql://{_CRED}@geheimhost.example/geheimdb?sslmode=prefer",
+        {},
+    ),
+    ("remote-sslmode-allow", f"postgresql://{_CRED}@geheimhost.example/geheimdb?sslmode=allow", {}),
+    ("remote-sslmode-leer", f"postgresql://{_CRED}@geheimhost.example/geheimdb?sslmode=", {}),
+    (
+        "remote-sslmode-gross",
+        f"postgresql://{_CRED}@geheimhost.example/geheimdb?sslmode=REQUIRE",
+        {},
+    ),
+    (
+        "remote-sslmode-name-gross",
+        f"postgresql://{_CRED}@geheimhost.example/geheimdb?SSLMODE=require",
+        {},
+    ),
+    (
+        "remote-sslmode-doppelt",
+        f"postgresql://{_CRED}@geheimhost.example/geheimdb?sslmode=require&sslmode=require",
+        {},
+    ),
+]
