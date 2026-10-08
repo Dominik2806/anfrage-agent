@@ -1,6 +1,7 @@
 """Tests: Das Token taucht in keiner Meldung auf, und F06 braucht keine Datenbank (F06)."""
 
 import logging
+import re
 from pathlib import Path
 from typing import Any
 
@@ -107,5 +108,7 @@ def test_package_has_no_database_access() -> None:
     for source in sources:
         text = source.read_text(encoding="utf-8")
         assert "psycopg" not in text, source
-        assert "DATABASE_URL" not in text, source
+        # Verboten ist nur das nackte Wort DATABASE_URL (die Variable des Seed-Skripts). \b trifft weder
+        # MCP_SERVER_DATABASE_URL noch DATABASE_URL_VAR, weil der Unterstrich zum Wort gehört.
+        assert not re.search(r"\bDATABASE_URL\b", text), source
         assert "asyncpg" not in text, source

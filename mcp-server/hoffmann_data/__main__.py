@@ -1,7 +1,7 @@
 """Start des Datenservice: python -m hoffmann_data (aus dem Ordner mcp-server).
 
-Ohne gültige Konfiguration bricht der Start mit Exit-Code 1 ab. Auf stderr steht nur der Name der
-Variablen, nie ihr Wert.
+Ohne gültige Konfiguration bricht der Start mit Exit-Code 1 ab, auch ohne MCP_SERVER_DATABASE_URL.
+Auf stderr steht nur der Name der Variablen, nie ihr Wert.
 """
 
 import os
@@ -17,7 +17,7 @@ from hoffmann_data.server import create_app
 def main(env: Mapping[str, str] | None = None) -> None:
     source = os.environ if env is None else env
     try:
-        config = load_config(source)
+        config = load_config(source, require_database=True)
     except ConfigError as exc:
         print(f"Konfigurationsfehler: {exc}", file=sys.stderr)
         raise SystemExit(1) from None

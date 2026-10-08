@@ -62,6 +62,10 @@ BASE_URL = "http://127.0.0.1:8000"
 MCP_PATH = "/mcp"
 
 TOOL_NAMES = {"search_products", "get_product", "find_customer", "create_lead", "log_activity"}
+# F07: die drei lesenden Werkzeuge sind echt, die übrigen bleiben Platzhalter (F08)
+READ_TOOLS = {"search_products", "get_product", "find_customer"}
+PLACEHOLDER_TOOLS = {"create_lead", "log_activity"}
+PRODUCTS_JSON = ROOT / "data" / "stammdaten" / "products.json"
 RESOURCE_URIS = {"policy://tonalitaet", "policy://rabatte"}
 PROMPT_NAMES = {"antwort_entwurf"}
 NOT_IMPLEMENTED = "noch nicht implementiert"
@@ -103,6 +107,14 @@ DBURL_VALID: list[tuple[str, str]] = [
         "postgresql://data_service_ro.geheimuser:geheimpasswort@geheimhost.example:6543/geheimdb"
         "?sslmode=require",
     ),
+    ("localhost-gross", f"postgresql://{_CRED}@LOCALHOST:5432/geheimdb"),
+    ("passwort-prozentkodiert", "postgresql://geheimuser:geheimpasswort%40x@localhost/geheimdb"),
+    ("passwort-mit-komma", "postgresql://geheimuser:geheimpasswort,2@localhost/geheimdb"),
+    (
+        "remote-weitere-parameter",
+        f"postgresql://{_CRED}@geheimhost.example/geheimdb?sslmode=require&connect_timeout=5",
+    ),
+    ("datenbankname-63-zeichen", f"postgresql://{_CRED}@localhost/" + "d" * 63),
 ]
 
 # (id, url, umgebung): werden abgelehnt. Jeder Grund aus db/seed/guard.py kommt vor, damit der
@@ -164,4 +176,18 @@ DBURL_INVALID: list[tuple[str, str | None, dict[str, str]]] = [
         f"postgresql://{_CRED}@geheimhost.example/geheimdb?sslmode=require&sslmode=require",
         {},
     ),
+    ("ipv6-unvollstaendig", f"postgresql://{_CRED}@[::1/geheimdb", {}),
+    (
+        "fragezeichen-im-passwort",
+        "postgresql://geheimuser:geheimpasswort?x@localhost/geheimdb",
+        {},
+    ),
+    (
+        "param-host-gross",
+        f"postgresql://{_CRED}@localhost/geheimdb?HOST=geheimhost.example",
+        {},
+    ),
+    ("datenbankname-zu-lang", f"postgresql://{_CRED}@localhost/" + "d" * 64, {}),
+    ("datenbankname-ungueltiges-utf8", f"postgresql://{_CRED}@localhost/geheim%FF", {}),
+    ("datenbankname-mit-slash", f"postgresql://{_CRED}@localhost/geheimdb/zweiter", {}),
 ]

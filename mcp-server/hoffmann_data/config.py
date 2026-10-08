@@ -7,10 +7,13 @@ oder bereinigt: Ist es nicht genau so gültig, wie es steht, startet der Server 
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 
+from hoffmann_data.dburl import check_database_url
+
 TOKEN_VAR = "MCP_SERVER_TOKEN"
 HOST_VAR = "MCP_SERVER_HOST"
 PORT_VAR = "MCP_SERVER_PORT"
 ALLOWED_HOSTS_VAR = "MCP_SERVER_ALLOWED_HOSTS"
+DATABASE_URL_VAR = "MCP_SERVER_DATABASE_URL"
 
 MIN_TOKEN_LENGTH = 32
 MIN_DISTINCT_TOKEN_CHARS = 10
@@ -29,10 +32,16 @@ class Config:
     host: str
     port: int
     allowed_hosts: tuple[str, ...]
+    # Verbindung zur Datenbank (F07); nie in repr, da sie das Passwort enthält
+    database_url: str | None = field(default=None, repr=False)
 
 
-def load_config(env: Mapping[str, str]) -> Config:
-    """Liest und prüft die Konfiguration. Wirft ConfigError, liest nie die echte Umgebung."""
+def load_config(env: Mapping[str, str], *, require_database: bool = False) -> Config:
+    """Liest und prüft die Konfiguration. Wirft ConfigError, liest nie die echte Umgebung.
+
+    require_database: Der Start des Servers (main) verlangt MCP_SERVER_DATABASE_URL; Tests, die die App
+    ohne Datenbank bauen, brauchen sie nicht. Ist die Variable gesetzt, wird sie immer geprüft.
+    """
     token = _read_token(env)
     host = _read_host(env)
     port = _read_port(env)
@@ -43,7 +52,10 @@ def load_config(env: Mapping[str, str]) -> Config:
             f"{HOST_VAR} ist keine Loopback-Adresse: {ALLOWED_HOSTS_VAR} muss die erlaubten "
             "Host-Werte nennen (kommagetrennt). Ohne die Liste startet der Server nur auf 127.0.0.1."
         )
-    return Config(token=token, host=host, port=port, allowed_hosts=allowed_hosts)
+    database_url = _read_database_url(env, require_database)
+    return Config(
+        token=token, host=host, port=port, allowed_hosts=allowed_hosts, database_url=database_url
+    )
 
 
 def _read_token(env: Mapping[str, str]) -> str:
@@ -100,3 +112,18 @@ def _read_allowed_hosts(env: Mapping[str, str]) -> tuple[str, ...]:
             f"{ALLOWED_HOSTS_VAR} enthält einen leeren Eintrag oder Leerzeichen innerhalb eines Eintrags."
         )
     return entries
+
+
+def _read_database_url(env: Mapping[str, str], required: bool) -> str | None:
+    raw = _optional(env, DATABASE_URL_VAR)
+    if raw is None:
+        if required:
+            raise ConfigError(
+                f"{DATABASE_URL_VAR} fehlt: Der Server braucht die Datenbankverbindung."
+            )
+        return None
+    # Die URL wird nie gekürzt oder bereinigt. Der Text von check_database_url enthält keinen Wert.
+    problem = check_database_url(raw, env)
+    if problem is not None:
+        raise ConfigError(f"{DATABASE_URL_VAR} ist ungültig: {problem}")
+    return raw

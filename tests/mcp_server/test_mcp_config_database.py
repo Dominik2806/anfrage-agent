@@ -96,6 +96,7 @@ def test_the_token_is_still_checked_first() -> None:
 
 def test_config_repr_and_str_do_not_reveal_the_database_url(token: str) -> None:
     config = _load({"MCP_SERVER_TOKEN": token, NAME: GOOD_URL})
+    assert config.database_url == GOOD_URL
     for text in (repr(config), str(config)):
         assert GOOD_URL not in text
         for secret in DB_SECRETS:
