@@ -1,8 +1,10 @@
-"""Fixtures für die Tests des Datenservice hoffmann-data (F06).
+"""Fixtures für die Tests des Datenservice hoffmann-data (F06, F07).
 
-Die Tests brauchen weder Datenbank noch Netzwerk: Die ASGI-App läuft im Speicher hinter dem
-Starlette-TestClient (kein Port wird geöffnet). Der Ordner heißt tests/mcp_server und nicht
-tests/mcp, weil ein Ordner "mcp" das SDK-Paket überdecken könnte.
+Die Tests der Schnittstellen, der Konfiguration und der Token-Prüfung brauchen weder Datenbank noch
+Netzwerk: Die ASGI-App läuft im Speicher hinter dem Starlette-TestClient (kein Port wird geöffnet).
+Die Fixtures mit Datenbank (F07, unten) laufen nur mit TEST_DATABASE_URL (nur localhost:5432), sonst
+werden die Tests übersprungen, in GitHub Actions ist das ein Fehler. Der Ordner heißt tests/mcp_server
+und nicht tests/mcp, weil ein Ordner "mcp" das SDK-Paket überdecken könnte.
 
 Der Code unter mcp-server/hoffmann_data wird erst in den Fixtures und Tests importiert, nicht beim
 Einlesen der Datei. So scheitert jeder Test einzeln mit "No module named 'hoffmann_data'", solange der

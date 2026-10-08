@@ -55,6 +55,14 @@ def test_role_script_names_no_other_role() -> None:
     assert ROLE_NAME in targets
 
 
+def test_role_script_revokes_only_from_the_role_or_public() -> None:
+    """Alle Ziele von REVOKE ... FROM sind die Rolle selbst oder PUBLIC (nur REVOKE, nicht jedes FROM)."""
+    code = _code(ROLE_SCRIPT.read_text(encoding="utf-8"))
+    targets = set(re.findall(r"\bREVOKE\b[^;]*?\bFROM\s+(\w+)", code, re.I))
+    assert targets, "das Skript entzieht keine Rechte (REVOKE fehlt)"
+    assert targets <= {ROLE_NAME, "PUBLIC"}, targets
+
+
 def test_role_script_has_no_password() -> None:
     """Das Passwort setzt der Mensch separat und es steht nie im Repository."""
     assert not re.search(r"\bPASSWORD\b", _code(ROLE_SCRIPT.read_text(encoding="utf-8")), re.I)
@@ -145,7 +153,8 @@ def test_role_reads_every_readable_table(
     "statement",
     [
         "INSERT INTO {} DEFAULT VALUES",
-        "UPDATE {} SET id = id WHERE false",
+        # DEFAULT statt "id = id": Bei GENERATED ALWAYS käme sonst ein anderer Fehler vor der Rechteprüfung
+        "UPDATE {} SET id = DEFAULT WHERE false",
         "DELETE FROM {} WHERE false",
         "TRUNCATE {}",
     ],

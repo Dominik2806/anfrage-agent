@@ -23,7 +23,9 @@ ROLE_SCRIPT = ROOT / "db" / "roles" / "data_service_ro.sql"
 ROLE_NAME = "data_service_ro"
 # So oft steht der Rollenname im Skript. Festgeschrieben: Ändert sich das Skript, ist die Zahl bewusst
 # anzupassen (sonst könnte die Ersetzung im Test eine Stelle verpassen).
-EXPECTED_ROLE_NAME_COUNT = 12
+# Die 13 Vorkommen: 1 Abfrage (rolname = ...), 1 CREATE ROLE, 3 ALTER ROLE (Attribute, read_only,
+# statement_timeout), 1 GRANT USAGE, 1 REVOKE, 1 GRANT SELECT, 5 CREATE POLICY (je Tabelle eine).
+EXPECTED_ROLE_NAME_COUNT = 13
 ROLE_NAME_PATTERN = re.compile(r"[a-z_][a-z0-9_]{0,62}")
 # Tabellen, die die Rolle lesen darf (discount_rules bewusst nicht, das kommt mit F09)
 READABLE_TABLES = ("products", "product_fits", "customers", "contacts", "activities")
