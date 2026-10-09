@@ -356,6 +356,30 @@ def tool_call(tool_app: Any, token: str) -> Iterator[ToolCall]:
 
 
 @pytest.fixture
+def raw_tool_call(tool_app: Any, token: str) -> Iterator[Callable[..., Any]]:
+    """Roher tools/call: gibt die HTTP-Antwort zurück, ohne sie zu prüfen.
+
+    Der Body entsteht mit json.dumps (ASCII, Sonderzeichen als \\uXXXX) und wird als Bytes gesendet. So
+    lässt sich auch ein einzelnes Surrogat ("\\ud800") verschicken; der JSON-Encoder von httpx würde es schon
+    im Test ablehnen. Für Fälle, in denen Transport oder SDK die Anfrage vor dem Werkzeug abweisen könnten.
+    """
+    with TestClient(tool_app, base_url=BASE_URL) as client:
+        headers = {**RPC_HEADERS, "Authorization": f"Bearer {token}"}
+
+        def _post(name: str, arguments: dict[str, Any]) -> Any:
+            payload = {
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "tools/call",
+                "params": {"name": name, "arguments": arguments},
+            }
+            body = json.dumps(payload).encode("ascii")
+            return client.post(MCP_PATH, content=body, headers=headers)
+
+        yield _post
+
+
+@pytest.fixture
 def catalog(make: Make) -> dict[str, int]:
     """Lädt den ganzen Katalog (products.json, product_fits.json) in die Test-Transaktion.
 

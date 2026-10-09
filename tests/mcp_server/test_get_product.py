@@ -234,6 +234,7 @@ def test_valid_number_in_an_empty_catalog_gives_null(tool_call: Any) -> None:
         "FB-1001' OR '1'='1",
         "FB-%",
         "FB-____",
+        "ſb-1001",  # ſb-1001: upper() ergäbe SB-1001, reines ASCII ist Pflicht
         SECRET_MARKER,
     ],
     ids=repr,

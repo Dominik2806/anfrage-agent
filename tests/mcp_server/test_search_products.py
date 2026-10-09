@@ -16,6 +16,7 @@ import pytest
 from mcp_testkit import (
     SECRET_MARKER,
     assert_no_internal_ids,
+    check_rejected_before_database,
     error_text,
     structured,
 )
@@ -415,6 +416,28 @@ def test_query_of_exactly_200_characters_is_accepted(catalog: Any, tool_call: An
 
 def test_missing_query_is_an_error(catalog: Any, tool_call: Any) -> None:
     assert tool_call("search_products", {}).get("isError") is True
+
+
+@pytest.mark.parametrize(
+    ("value", "early_rejection_allowed"),
+    [
+        # Ein einzelnes Surrogat ist kein gültiges JSON/UTF-8: Transport oder SDK dürfen es vor dem
+        # Werkzeug abweisen. Der Test belegt dann nur, dass die Datenbank nicht erreicht wird.
+        pytest.param("a\ud800b", True, id="surrogat"),
+        # Der Zeilentrenner ist gültiges JSON: Er muss das Werkzeug erreichen und dort abgelehnt werden.
+        pytest.param("a b", False, id="zeilentrenner"),
+    ],
+)
+def test_surrogate_and_line_separator_do_not_reach_the_database(
+    catalog: Any, raw_tool_call: Any, value: str, early_rejection_allowed: bool
+) -> None:
+    from hoffmann_data.db import DATABASE_ERROR
+    from hoffmann_data.limits import QUERY_INVALID
+
+    response = raw_tool_call("search_products", {"query": value})
+    check_rejected_before_database(
+        response, QUERY_INVALID, DATABASE_ERROR, early_rejection_allowed=early_rejection_allowed
+    )
 
 
 # Limit: Standard 5, Grenzen 1 bis 20

@@ -2,6 +2,15 @@
 
 Jede Prüfung gibt den bereinigten Wert zurück oder wirft einen ToolError mit fester Meldung. Die Meldung
 enthält nie den Eingabewert (Kundentext ist Daten, kein Echo). Ohne Datenbank und ohne Netzwerk.
+
+Festgelegte Regeln (nach strip()):
+- Suchtext und Kundentext (check_query, check_customer_query): Abgelehnt wird jedes Zeichen mit der
+  Unicode-Kategorie C* (Cc Steuerzeichen, Cf Formatzeichen wie die Bidi-Überschreibung, Cs einzelnes
+  Surrogat, Co privater Bereich, Cn nicht zugewiesen) sowie Zl und Zp (Zeilen- und Absatztrenner).
+  Die Länge zählt Zeichen, nicht Bytes.
+- Artikelnummer (check_article_number): Nach strip() muss die Eingabe reines ASCII sein, erst danach
+  folgen upper() und der Regex (fullmatch). Sonst würden Zeichen wie "ſ", "ı" oder "ﬀ" von upper() zu
+  "S", "I" und "FF" und als gültige Nummer durchgehen.
 """
 
 from typing import Any
@@ -11,6 +20,16 @@ from mcp.server.mcpserver.exceptions import ToolError
 from mcp_testkit import SECRET_MARKER
 
 CONTROL_CHARACTERS = ["\x00", "\n", "\r", "\t", "\x1b", "\x7f", "\x85"]
+# Weitere abzulehnende Zeichen, je Unicode-Kategorie ein Beispiel (als Escape, damit sie im Quelltext sichtbar sind)
+OTHER_REJECTED_CHARACTERS = {
+    "einzelnes-surrogat-cs": "\ud800",
+    "zeilentrenner-zl": " ",
+    "absatztrenner-zp": " ",
+    "bidi-ueberschreibung-cf": "‮",
+    "nullbreite-leerstelle-cf": "​",
+    "privater-bereich-co": "",
+    "nicht-zugewiesen-cn": "͸",
+}
 
 
 def test_limit_constants() -> None:
@@ -79,6 +98,7 @@ def test_check_query_accepts_and_strips(value: str, expected: str) -> None:
         "ä" * 201,
         *[f"vor{c}nach" for c in CONTROL_CHARACTERS],
         *[f"{c}" for c in CONTROL_CHARACTERS if c.strip()],
+        *[f"a{c}b" for c in OTHER_REJECTED_CHARACTERS.values()],
         SECRET_MARKER + "x" * 200,
     ],
 )
@@ -193,6 +213,11 @@ def test_check_article_number_accepts_and_normalises(value: str, expected: str) 
         "ＦＢ-1001",
         "FB-١٠٠١",
         "FB‐1001",
+        # upper() macht daraus SB-1001, IT-3001 und FF-1001: Nach strip() muss die Eingabe reines ASCII sein
+        "ſb-1001",  # ſb-1001 (langes s)
+        "ıt-3001",  # ıt-3001 (i ohne Punkt)
+        "ﬀ-1001",  # ﬀ-1001 (Ligatur ff)
+        "a\ud800b",
         SECRET_MARKER,
         "FB-1001" + "0" * 200,
     ],
@@ -258,6 +283,7 @@ def test_check_customer_query_accepts_and_strips(value: str, expected: str) -> N
         "   ",
         "x" * 201,
         *[f"vor{c}nach" for c in CONTROL_CHARACTERS],
+        *[f"a{c}b" for c in OTHER_REJECTED_CHARACTERS.values()],
         SECRET_MARKER + "x" * 200,
     ],
 )

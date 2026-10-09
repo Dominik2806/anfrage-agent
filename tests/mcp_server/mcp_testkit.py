@@ -128,6 +128,36 @@ def assert_no_internal_ids(value: Any) -> None:
     assert not found, f"interne IDs in der Ausgabe: {found}"
 
 
+def check_rejected_before_database(
+    response: Any, fixed_message: str, database_error: str, *, early_rejection_allowed: bool
+) -> str:
+    """Prüft die rohe HTTP-Antwort auf einen Aufruf mit unzulässigem Zeichen.
+
+    Erwartet: Das Werkzeug läuft und lehnt mit seiner festen Meldung ab (`fixed_message`), ohne
+    `database_error` und ohne structuredContent. Gibt dann "werkzeug" zurück.
+    Hat schon Transport oder SDK die Anfrage abgewiesen (HTTP-Fehler oder JSON-RPC-Fehler), ist das nur mit
+    `early_rejection_allowed` zulässig; dann gibt die Funktion "vor-werkzeug" zurück und druckt Status und
+    Text der Abweisung (sichtbar mit pytest -s). In keinem Fall darf die Datenbank erreicht worden sein.
+    """
+    assert database_error not in response.text, "der Wert hat die Datenbank erreicht"
+    body: dict[str, Any] = {}
+    if response.status_code == 200:
+        body = parse_rpc_body(response)
+        if "result" in body:
+            result = body["result"]
+            assert fixed_message in error_text(result)
+            assert not result.get("structuredContent")
+            return "werkzeug"
+    assert response.status_code >= 400 or "error" in body, f"nicht abgewiesen: {response.text!r}"
+    assert early_rejection_allowed, (
+        f"vor dem Werkzeug abgewiesen (HTTP {response.status_code}): {response.text[:300]!r}"
+    )
+    print(
+        f"ABGEWIESEN VOR DEM WERKZEUG: HTTP {response.status_code}, Text: {response.text[:300]!r}"
+    )
+    return "vor-werkzeug"
+
+
 # Datenbank-URLs für die Tests von dburl.py und für den Paritätstest gegen db/seed/guard.py (F07).
 # Alle Zugangswerte enthalten "geheim", damit Tests prüfen können, dass keine Meldung sie nennt.
 DB_SECRETS = ("geheimuser", "geheimpasswort", "geheimhost", "geheimdb")
