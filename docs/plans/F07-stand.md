@@ -13,7 +13,7 @@ ADR 0004, CHANGELOG und AGENT_LOG. Diese Datei enthält keine Zugangsdaten und k
 - Branch: `feat/f07-read-tools`.
 - Commits: `73e4d1b` (Etappe 1 rot), `86b9204` (Etappe 1 grün), `c293e51` (Etappe 2 rot), `5d5d47e`
   (Etappe 2 grün), `dd5f834` (Etappe 3 rot), `1f69995` und `4281137` (Etappe 3 Nachbesserungen), `82b4bfc`
-  (Etappe 4 grün).
+  (Etappe 4 grün), `0636258` (Etappe 5 grün).
 - Der ausführliche Plan der ersten Sitzung lag außerhalb des Repositories und kann in einer neuen Sitzung
   fehlen; diese Datei ist deshalb in sich vollständig.
 
@@ -26,48 +26,65 @@ ADR 0004, CHANGELOG und AGENT_LOG. Diese Datei enthält keine Zugangsdaten und k
 | 2 | `dburl.py`, `MCP_SERVER_DATABASE_URL` in Config und `main()`, Paritätstest gegen `guard.py`, `psycopg` in `requirements.txt` | Bisherige Tests unverändert grün, URL-Fälle grün, Meldungen ohne Werte | erledigt (384 Tests grün mit lokaler Datenbank) |
 | 3 | Alle Tests der drei Werkzeuge und der Anpassungen schreiben (nur Tests), Rot-Lauf, roter Stand als `test:`-Commit pushen | Rot-Protokoll je Datei mit Grund; jeder Pflichtfall hat mindestens einen Test | erledigt (`dd5f834` rot, `1f69995` und `4281137` Nachbesserungen) |
 | 4 | `db.py`, `limits.py`, `catalog.py` mit `search_products`, Verdrahtung in `server.py`, `pydantic` gepinnt | Tests zu Suche, Limits und Verbindung grün; Synonym-Ergebnis berichtet | erledigt (`82b4bfc`; 723 bestanden, 147 rot, alle zu `get_product` und `find_customer`; `ruff format` und `ruff check mcp-server` sauber) |
-| 5 | `get_product` | `test_get_product.py` und die `get_product`-Fälle in `test_mcp_interfaces.py` und `test_db_connection.py` grün | **nächste Etappe** |
-| 6 | `find_customer` in `crm.py` | Alle neuen und alten MCP-Tests grün, fünf Platzhalter unverändert | offen |
+| 5 | `get_product` | `test_get_product.py` und die `get_product`-Fälle in `test_mcp_interfaces.py` und `test_db_connection.py` grün | erledigt (`0636258`; 777 bestanden, 93 rot, alle zu `find_customer`: 88 + 4 + 1; `ruff format` und `ruff check mcp-server` sauber) |
+| 6 | `find_customer` in `crm.py` | Alle neuen und alten MCP-Tests grün, fünf Platzhalter unverändert | **nächste Etappe** |
 | 7 | Startprüfung der Rolle, nur lesend (`verify_read_only_role` in `db.py`, Aufruf in `main()`) | Tests grün, keine Schreib-SQL in der Prüfung, Suite ohne Datenbank bleibt grün | offen (optional zurückstellbar, siehe h) |
 | 8 | CI-Diff (Mensch), ADR 0004, README, CHANGELOG, `mcp-server/CLAUDE.md`, `mcp-server/README.md`, DATENMODELL, `.env.example`, Kommentare in `db/schema.sql`; `code-reviewer` und `security-reviewer`; diese Datei entfernen; Pull Request | Pipeline grün (`gh pr checks`), Reviewer-Funde bearbeitet, CHANGELOG- und AGENT_LOG-Eintrag vorhanden | offen |
 | 9 | Mensch: Rolle in Supabase einspielen, Passwort setzen, `MCP_SERVER_DATABASE_URL` setzen, Probeaufruf | `search_products "Gurtband"` liefert Daten, Startprüfung besteht, Schreibversuch über die Rolle scheitert | offen |
 
-## c) Nächster Schritt: Etappe 5, `get_product`
+## c) Nächster Schritt: Etappe 6, `find_customer`
 
-Die Tests liegen (`tests/mcp_server/test_get_product.py`, dazu die `get_product`-Fälle in
+Die Tests liegen (`tests/mcp_server/test_find_customer.py`, dazu die `find_customer`-Fälle in
 `test_mcp_interfaces.py` und `test_db_connection.py`). Sie werden **nicht geändert**, außer ein Test ist
-belegbar falsch; dann melden, bevor etwas geändert wird. Es gibt keinen Schritt T und keinen Rot-Lauf mehr:
-Der Plan wird vorgelegt, dann folgen die Edits einzeln zur Freigabe (I), dann der grüne Lauf des Menschen (G).
+belegbar falsch; dann melden, bevor etwas geändert wird. Ablauf: Plan, Edits einzeln zur Freigabe (I), grüner
+Lauf des Menschen (G). Ziel: alle Tests in `tests/mcp_server` grün. Stand nach Etappe 5: 777 bestanden,
+93 rot, alle zu `find_customer` (88 in `test_find_customer.py`, 4 in `test_mcp_interfaces.py`, 1 in
+`test_db_connection.py`).
 
-Umfang: Nur `get_product` wird echt. `search_products` bleibt unverändert; `find_customer`, `create_lead`,
-`log_activity`, beide Resources und der Prompt bleiben Platzhalter. Der `instructions`-Text in `server.py` und
-die Docstrings werden angepasst.
+Umfang: Neues Modul `mcp-server/hoffmann_data/crm.py` mit `AMBIGUOUS_MESSAGE = "Mehrdeutiger Treffer."`,
+`pick_unique(rows)` und `find_customer(database, query)`. In `server.py` wird `find_customer` ein echtes
+Werkzeug (`Annotated[Any, WithJsonSchema(...)]`, Rückgabetyp als `TypedDict`). `instructions`-Text und
+Docstrings werden angepasst. Danach bleiben nur `create_lead`, `log_activity`, beide Resources und der Prompt
+Platzhalter.
 
-Verhalten (Quelle: `test_get_product.py`):
-- Unbekannte, aber gültige Artikelnummer: `{"product": null}`, kein Fehler. Ungültige Nummer:
-  `ARTICLE_NUMBER_INVALID`, die Datenbank wird nie erreicht (Prüfung vor `read_connection`).
-- Ein inaktiver Artikel wird geliefert (`is_active: false`).
-- Preise als Text mit zwei Nachkommastellen (`list_price` ist `numeric(10,2)`), `technical_data` als Objekt.
-- `fits_assemblies` (dieses Teil passt zu diesen Anlagen) und `compatible_parts` (diese Teile passen zu dieser
-  Anlage) kommen aus `product_fits`, nur als `article_number`, `name`, `note`, ohne interne IDs. Varianten erben
-  die Zuordnung nicht; keine Zeile in `product_fits` heißt leere Listen.
+Verhalten (Quelle: `test_find_customer.py`, Modul-Docstring):
+- Eingabe mit `@`: Kontakt über die Adresse (`matched_by` `email`), sonst Kunde über die Domain der Adresse
+  (`domain`). Ohne `@`: Firmenname (`company`), sonst, wenn die Eingabe eine Domain ist, Domain (`domain`).
+  Immer exakt, ohne Beachtung der Schreibung; Subdomains, Teilnamen, `%` und `_` treffen nicht.
+- Kein Treffer: `{"customer": null, "matched_by": null}`, kein Fehler. Ungültige Eingabe:
+  `CUSTOMER_QUERY_INVALID`, die Datenbank wird nie erreicht, die Prüfung gewinnt vor `NOT_CONFIGURED`.
+- Bis 20 Kontakte, die letzten 10 Aktivitäten (neueste zuerst); Beträge als Text mit zwei Nachkommastellen
+  oder `null`; `occurred_at` als ISO-Text mit Zeitzone; `article_number` der Aktivität über das Produkt
+  (`null` ohne Produkt); keine internen IDs; kein Feld `ambiguous`.
 - Nur Lesen, Werte nur als benannte Parameter, keine verbotenen Wörter und kein Einsetzen in SQL
   (`test_package_sql_rules.py`); nur `db.py` importiert `psycopg`.
 
-### Bereits umgesetzt (Etappe 4)
+Ansatz (Plan, noch nicht umgesetzt):
+- Je Weg eine feste Abfrage mit `LIMIT 2` und `pick_unique` (Kontakt über `email`, Kunde über `domain`, Kunde
+  über `lower(company_name)`, Vergleich mit `lower()` in PostgreSQL); Mehrdeutigkeit ist heute durch die
+  UNIQUE-Constraints unmöglich, der Fehler geht unverändert durch `read_connection`.
+- „Sieht wie eine Domain aus“: ASCII-Labels mit Punkten, mindestens ein Punkt, nicht an `.example` gekoppelt.
+  Leerer Lokalteil einer Adresse ergibt keinen Treffer.
+- Kontakte: gefundener Kontakt zuerst (bei `email`), dann `last_name`, `first_name`, `email`, `LIMIT 20`.
+  Aktivitäten: `occurred_at DESC, id DESC` (nur zum Sortieren), `LIMIT 10`, `LEFT JOIN products`.
+- `amount_eur` als `f"{value:.2f}"` oder `null`; `occurred_at` nach UTC, `isoformat()`.
+
+### Bereits umgesetzt (Etappe 4 und 5)
 - `limits.py`: `check_query`, `check_limit`, `check_article_number`, `check_customer_query` mit festen Meldungen.
 - `db.py`: `Database`, `read_connection`, `fetch_all(connection, query, params)` (liefert Dicts),
   `NOT_CONFIGURED`, `DATABASE_ERROR`, `ConnectionSource`.
-- `catalog.py`: `search_products`, `SEARCH_SQL`, `ProductHit`, `SearchResult`.
-- `server.py`: `create_mcp_server(database=None)`, `create_app(config, database=None)`, `search_products` mit
-  `Annotated[Any, WithJsonSchema(...)]`.
+- `catalog.py`: `search_products` (`SEARCH_SQL`, `ProductHit`, `SearchResult`) und `get_product`
+  (`GET_PRODUCT_SQL`, eine Abfrage mit beiden Richtungen von `product_fits` als JSON-Listen, `LinkedProduct`,
+  `ProductDetail`, `ProductResult`, Preis mit `f"{value:.2f}"`).
+- `server.py`: `create_mcp_server(database=None)`, `create_app(config, database=None)`, `search_products` und
+  `get_product` mit `Annotated[Any, WithJsonSchema(...)]`.
 
-### Geplante Schnittstellen (die Tests legen sie fest; `get_product` und `find_customer` sind noch offen)
+### Geplante Schnittstellen (die Tests legen sie fest; nur `find_customer` ist noch offen)
 - Ergebnisformen (`structuredContent`):
   - `search_products` → `{"items": [{article_number, name, category, is_active}], "count": n}` (umgesetzt).
   - `get_product` → `{"product": {article_number, name, category, description, technical_data,
     list_price, price_unit, lead_time_days, is_active, fits_assemblies: [{article_number, name, note}],
-    compatible_parts: [{article_number, name, note}]} | null}`.
+    compatible_parts: [{article_number, name, note}]} | null}` (umgesetzt).
   - `find_customer` → `{"customer": {company_name, domain, industry, country, status, contacts: [{first_name,
     last_name, email, job_title, language}], recent_activities: [{type, occurred_at, subject, summary,
     amount_eur, created_by, article_number}]} | null, "matched_by": "company"|"email"|"domain"|null}`.
@@ -183,10 +200,12 @@ Verhalten (Quelle: `test_get_product.py`):
   Aufbau wie im Job `schema-tests`; der Mensch wendet ihn an). In CI prüfen, ob die Suchtests mit Umlauten in
   Großschreibung bestehen (siehe i, Locale).
 - Der Pull Request erst danach, mit `code-reviewer` und `security-reviewer` und grüner Pipeline.
+- Offener Punkt `is_active` in den Verweisen von `get_product` (`fits_assemblies`, `compatible_parts`): Heute
+  ohne (siehe i); aufnehmen heißt `LINK_KEYS` im Test ändern, das macht der Mensch.
 - F08: Freigabe-Mechanismus für `create_lead` (technisch, nicht nur Beschreibungstext), getrennte Token für
   Lesen und Schreiben, Prüfungen 2 und 3 aus DATENMODELL §5 auch in den Schreib-Werkzeugen.
 
-## i) Gelernte Punkte für ADR 0004 und den Bericht (Etappe 3 und 4)
+## i) Gelernte Punkte für ADR 0004 und den Bericht (Etappe 3 bis 5)
 
 - **Abhängigkeiten:** `pydantic==2.13.5` ist explizit gepinnt; kein `typing_extensions`, Ergebnistypen sind
   `typing.TypedDict` (Python 3.13).
@@ -194,10 +213,9 @@ Verhalten (Quelle: `test_get_product.py`):
   `limits.py`. Grund: Das SDK gibt bei Pydantic-Meldungen den `input_value` an den Client zurück
   (`tools/base.py:153-156`); die einfache Signatur (`limit: int`, `query: str`) liefert dann keine feste Meldung
   ohne Echo. Dasselbe gilt für `article_number` und die Kundenangabe in Etappe 5 und 6.
-- **JSON-Vorparser des SDKs** (`func_metadata.py:254-266`): Suchtexte `null`, `[]` und `{}` ersetzt er durch den
-  geparsten Wert, sie werden abgelehnt. Für `true` und `false` meldet die Vorgabe dasselbe; nach dem Lesen von
-  Zeile 261 (`bool` ist ein `int`) bleibt der Text erhalten und wird nur wegen seiner Form abgelehnt oder
-  gesucht. Die Angabe ist mit einem Lauf zu prüfen, bevor sie in ADR 0004 steht.
+- **JSON-Vorparser des SDKs** (`func_metadata.py:254-266`): Er ersetzt nur Texte, die als JSON `null`, eine Liste
+  oder ein Objekt gelesen werden (`null`, `[]`, `{}`); sie werden abgelehnt. `true` und `false` ersetzt er nicht
+  (`bool` ist ein `int`, Zeile 261), der Text bleibt erhalten.
 - **Fehlender Pflichtparameter:** Die SDK-Meldung nennt das Argument-Dict (Issue später, siehe h).
 - **`art` in Python:** Die Großschreibung der Artikelnummer in der Suche wird in Python berechnet (nur bei
   ASCII), nicht mit `upper()` in SQL: Das hängt vom Locale der Datenbank ab und machte aus `ſb-1001`
@@ -212,3 +230,7 @@ Verhalten (Quelle: `test_get_product.py`):
 - **Sonderzeichen im Quelltext:** `ruff check` (PLE2502, PLE2515) fand wörtliche Steuer- und Formatzeichen in
   `test_limits.py`. Escapes immer achtstellig mit `\U`, danach mit Suche prüfen (siehe AGENT_LOG).
 - **`noqa: BLE001`** in `db.py` ist Absicht: Auch unerwartete Ausnahmen dürfen keinen Text nach außen tragen.
+- **Verweise ohne `is_active`:** Die Beschreibung von `get_product` warnt, dass Teile in `compatible_parts`
+  ausgelaufen sein können (Status mit `get_product` prüfen, Notiz beachten). Die Verweise haben bewusst kein
+  `is_active`, weil `LINK_KEYS` im Test `{article_number, name, note}` ist. Offener Punkt: `is_active` in die
+  Verweise aufnehmen; das braucht eine Testanpassung durch den Menschen (siehe h).
