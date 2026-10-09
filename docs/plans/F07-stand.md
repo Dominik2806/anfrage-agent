@@ -1,4 +1,4 @@
-# F07 – Übergabe (Stand 2026-10-08)
+# F07 – Übergabe (Stand 2026-10-09)
 
 Nur für die Dauer von F07. Wird in Etappe 8 vor dem Pull Request entfernt. Dauerhaftes steht danach in
 ADR 0004, CHANGELOG und AGENT_LOG. Diese Datei enthält keine Zugangsdaten und keine Passwörter.
@@ -12,10 +12,10 @@ ADR 0004, CHANGELOG und AGENT_LOG. Diese Datei enthält keine Zugangsdaten und k
   leere Treffer.
 - Branch: `feat/f07-read-tools`.
 - Commits: `73e4d1b` (Etappe 1 rot), `86b9204` (Etappe 1 grün), `c293e51` (Etappe 2 rot), `5d5d47e`
-  (Etappe 2 grün).
-- Ausführlicher Plan: `C:\Users\sobek\.claude\plans\pasted-content-id-8b3d-aufgabe-f07-optimized-lemur.md`
-  (liegt außerhalb des Repositories und kann in einer neuen Sitzung fehlen; diese Datei ist deshalb in sich
-  vollständig).
+  (Etappe 2 grün), `dd5f834` (Etappe 3 rot), `1f69995` und `4281137` (Etappe 3 Nachbesserungen), `82b4bfc`
+  (Etappe 4 grün).
+- Der ausführliche Plan der ersten Sitzung lag außerhalb des Repositories und kann in einer neuen Sitzung
+  fehlen; diese Datei ist deshalb in sich vollständig.
 
 ## b) Etappen
 
@@ -24,81 +24,47 @@ ADR 0004, CHANGELOG und AGENT_LOG. Diese Datei enthält keine Zugangsdaten und k
 | 0 | Fragen beantworten, `psycopg` freigeben | Antworten liegen vor, Abhängigkeit freigegeben | erledigt |
 | 1 | DB-Fixtures, Rollen-Skript `db/roles/data_service_ro.sql`, `test_role_script.py` | Rolle liest nur (SELECT auf fünf Tabellen mit Policies), Schreibversuche verweigert, Skript zweimal ausführbar, Namensersetzung im Test belegt | erledigt |
 | 2 | `dburl.py`, `MCP_SERVER_DATABASE_URL` in Config und `main()`, Paritätstest gegen `guard.py`, `psycopg` in `requirements.txt` | Bisherige Tests unverändert grün, URL-Fälle grün, Meldungen ohne Werte | erledigt (384 Tests grün mit lokaler Datenbank) |
-| 3 | Alle Tests der drei Werkzeuge und der Anpassungen schreiben (nur Tests), Rot-Lauf, roter Stand als `test:`-Commit pushen | Rot-Protokoll je Datei mit Grund; jeder Pflichtfall hat mindestens einen Test | offen |
-| 4 | `db.py`, `limits.py`, `catalog.py` mit `search_products`, Verdrahtung in `server.py` | Tests zu Suche, Limits und Verbindung grün; Synonym-Ergebnis berichtet (welche Begriffe durchfallen) | offen |
-| 5 | `get_product` | Tests grün | offen |
+| 3 | Alle Tests der drei Werkzeuge und der Anpassungen schreiben (nur Tests), Rot-Lauf, roter Stand als `test:`-Commit pushen | Rot-Protokoll je Datei mit Grund; jeder Pflichtfall hat mindestens einen Test | erledigt (`dd5f834` rot, `1f69995` und `4281137` Nachbesserungen) |
+| 4 | `db.py`, `limits.py`, `catalog.py` mit `search_products`, Verdrahtung in `server.py`, `pydantic` gepinnt | Tests zu Suche, Limits und Verbindung grün; Synonym-Ergebnis berichtet | erledigt (`82b4bfc`; 723 bestanden, 147 rot, alle zu `get_product` und `find_customer`; `ruff format` und `ruff check mcp-server` sauber) |
+| 5 | `get_product` | `test_get_product.py` und die `get_product`-Fälle in `test_mcp_interfaces.py` und `test_db_connection.py` grün | **nächste Etappe** |
 | 6 | `find_customer` in `crm.py` | Alle neuen und alten MCP-Tests grün, fünf Platzhalter unverändert | offen |
 | 7 | Startprüfung der Rolle, nur lesend (`verify_read_only_role` in `db.py`, Aufruf in `main()`) | Tests grün, keine Schreib-SQL in der Prüfung, Suite ohne Datenbank bleibt grün | offen (optional zurückstellbar, siehe h) |
 | 8 | CI-Diff (Mensch), ADR 0004, README, CHANGELOG, `mcp-server/CLAUDE.md`, `mcp-server/README.md`, DATENMODELL, `.env.example`, Kommentare in `db/schema.sql`; `code-reviewer` und `security-reviewer`; diese Datei entfernen; Pull Request | Pipeline grün (`gh pr checks`), Reviewer-Funde bearbeitet, CHANGELOG- und AGENT_LOG-Eintrag vorhanden | offen |
 | 9 | Mensch: Rolle in Supabase einspielen, Passwort setzen, `MCP_SERVER_DATABASE_URL` setzen, Probeaufruf | `search_products "Gurtband"` liefert Daten, Startprüfung besteht, Schreibversuch über die Rolle scheitert | offen |
 
-## c) Nächster Schritt: Etappe 3, Schritt T
+## c) Nächster Schritt: Etappe 5, `get_product`
 
-Alle Tests schreiben, **keine Implementierung**. Erledigt in Etappe 3 bisher: ein Edit in
-`tests/mcp_server/mcp_testkit.py` (`READ_TOOLS`, `PLACEHOLDER_TOOLS`, `PRODUCTS_JSON`).
+Die Tests liegen (`tests/mcp_server/test_get_product.py`, dazu die `get_product`-Fälle in
+`test_mcp_interfaces.py` und `test_db_connection.py`). Sie werden **nicht geändert**, außer ein Test ist
+belegbar falsch; dann melden, bevor etwas geändert wird. Es gibt keinen Schritt T und keinen Rot-Lauf mehr:
+Der Plan wird vorgelegt, dann folgen die Edits einzeln zur Freigabe (I), dann der grüne Lauf des Menschen (G).
 
-Noch zu schreiben (je Datei ein Edit zur Freigabe):
+Umfang: Nur `get_product` wird echt. `search_products` bleibt unverändert; `find_customer`, `create_lead`,
+`log_activity`, beide Resources und der Prompt bleiben Platzhalter. Der `instructions`-Text in `server.py` und
+die Docstrings werden angepasst.
 
-1. `mcp_testkit.py` weiter: Hilfen `structured(result)`, `error_text(result)`, `all_keys(value)`,
-   `assert_no_internal_ids(value)` (kein Schlüssel `id` oder `*_id`).
-2. `conftest.py`: `RoDatabase` (Test-Double mit `connection()`: Savepoint, `SET LOCAL ROLE`, am Ende
-   `RESET ROLE` nur bei normalem Ende; gibt die Test-Verbindung heraus), Fixtures `tool_app`, `tool_call`
-   (ruft `tools/call` über die ganze App mit Token auf und gibt `result` zurück) und `catalog` (lädt alle
-   Artikel aus `data/stammdaten/products.json` über `make._insert` in die Test-Transaktion).
-3. `test_db_connection.py`: `db.read_connection(database)`; ohne Datenbank: `NOT_CONFIGURED`; ein
-   `ToolError` aus dem Block läuft unverändert durch (nicht verschluckt, nicht umgeschrieben, kein
-   WARNING-Eintrag); `psycopg.Error` und unerwartete Ausnahmen aus dem Block oder aus `connection()` werden
-   auf `DATABASE_ERROR` abgebildet (`__cause__` ist `None`); **caplog-Test**: genau ein WARNING-Eintrag des
-   Loggers `hoffmann_data.db` mit nur Fehlerklasse und SQLSTATE, nie Text der Ausnahme, kein `exc_info`, nie
-   Host, Benutzer, Datenbankname, URL. Über die ganze App: unerreichbarer Port (`127.0.0.1:1`) und eine
-   nicht vorhandene Datenbank auf dem Test-Server, jeweils ohne Zugangswerte in Antwort, Log, stdout und
-   stderr. Echte `Database`: Verbindung pro Aufruf (gezählter `psycopg.connect`, danach geschlossen), nur
-   lesend (`INSERT` scheitert mit `ReadOnlySqlTransaction`), `SHOW statement_timeout` ist `5s`,
-   `prepare_threshold` ist `None`, `repr` ohne URL, der Konstruktor verbindet nicht.
-4. `test_limits.py` (Modul `hoffmann_data/limits.py`): `check_query`, `check_limit`,
-   `check_article_number`, `check_customer_query` mit festen Meldungen ohne Eingabewert.
-5. `test_search_products.py`, `test_get_product.py`, `test_find_customer.py` mit allen Pflichtfällen aus
-   dem Plan (Treffer, kein Treffer, Synonyme aus `products.json`, Groß/Klein, SQL-Metazeichen, zu lange und
-   leere Eingabe, Limit-Grenzen, unbekannte Artikelnummer, unbekannter Kunde, Kunde mit und ohne
-   Aktivitäten, kein Geheimnis, keine internen IDs).
-6. **Messtest `test_limit_type_coercion`**: Abweichung vom ersten Plan. Vor der Implementierung kann kein
-   Lauf das Pydantic-Verhalten zeigen (die Platzhalter haben keine Parameter). Deshalb schreiben wir den
-   **gewünschten** Test: `limit` als `"7"`, `true`, `7.0`, `7.5`, `"abc"`, `null` und `query` als `123`,
-   `true`, `["a"]` werden mit fester Meldung abgelehnt, ohne Echo des Wertes (Marker `GEHEIM-4711`). In
-   Etappe 4 wird zuerst die einfache Signatur `limit: int = 5` gebaut. Rutscht etwas durch oder erscheint der
-   Wert in der Meldung, wechselt die Signatur auf `Annotated[Any, WithJsonSchema({...})]` mit strenger
-   Prüfung in `limits.py` (`type(value) is int`).
-7. `test_mcp_interfaces.py`: Platzhaltertest nur noch für `PLACEHOLDER_TOOLS`; Echo-Test auf `log_activity`;
-   neue Tests: Lese-Werkzeuge ohne „Platzhalter“ in der Beschreibung, `inputSchema` (`query` und
-   `article_number` Pflicht, `limit` optional), `outputSchema` vorhanden (Annahme, wird in Etappe 4 belegt);
-   Docstring „Alle Platzhalter sind parameterlos“ anpassen.
-8. `test_mcp_no_leak.py`: `test_package_has_no_database_access` auf die AST-Prüfung umbauen und den
-   Docstring aktualisieren. Es gilt: nur `hoffmann_data/db.py` darf `psycopg` importieren (Prüfung der
-   Importknoten, nicht des Textes), `db.py` importiert es tatsächlich, `\bDATABASE_URL\b` bleibt verboten,
-   `asyncpg` bleibt verboten.
-9. Neu `test_package_sql_rules.py`: in den Zeichenketten des Pakets (Docstrings ausgenommen) kein
-   `INSERT|UPDATE|DELETE|DROP|ALTER|TRUNCATE|GRANT|COPY|CREATE|MERGE`; keine f-Strings und keine
-   `%`-/`.format`-Formatierung auf SQL-Konstanten (nur `psycopg.sql.SQL(...).format` für feste Namen).
+Verhalten (Quelle: `test_get_product.py`):
+- Unbekannte, aber gültige Artikelnummer: `{"product": null}`, kein Fehler. Ungültige Nummer:
+  `ARTICLE_NUMBER_INVALID`, die Datenbank wird nie erreicht (Prüfung vor `read_connection`).
+- Ein inaktiver Artikel wird geliefert (`is_active: false`).
+- Preise als Text mit zwei Nachkommastellen (`list_price` ist `numeric(10,2)`), `technical_data` als Objekt.
+- `fits_assemblies` (dieses Teil passt zu diesen Anlagen) und `compatible_parts` (diese Teile passen zu dieser
+  Anlage) kommen aus `product_fits`, nur als `article_number`, `name`, `note`, ohne interne IDs. Varianten erben
+  die Zuordnung nicht; keine Zeile in `product_fits` heißt leere Listen.
+- Nur Lesen, Werte nur als benannte Parameter, keine verbotenen Wörter und kein Einsetzen in SQL
+  (`test_package_sql_rules.py`); nur `db.py` importiert `psycopg`.
 
-Danach R: Der Mensch führt den Rot-Lauf aus (Befehl nennen, nicht ausführen), prüft jeden Fehlschlag auf
-den erwarteten Grund, und pusht den roten Stand als eigenen `test:`-Commit
-(z. B. `test(mcp): add failing tests for read tools (F07)`).
+### Bereits umgesetzt (Etappe 4)
+- `limits.py`: `check_query`, `check_limit`, `check_article_number`, `check_customer_query` mit festen Meldungen.
+- `db.py`: `Database`, `read_connection`, `fetch_all(connection, query, params)` (liefert Dicts),
+  `NOT_CONFIGURED`, `DATABASE_ERROR`, `ConnectionSource`.
+- `catalog.py`: `search_products`, `SEARCH_SQL`, `ProductHit`, `SearchResult`.
+- `server.py`: `create_mcp_server(database=None)`, `create_app(config, database=None)`, `search_products` mit
+  `Annotated[Any, WithJsonSchema(...)]`.
 
-### Geplante Schnittstellen (die Tests legen sie fest)
-
-- `hoffmann_data.db`: `Database(url, **connect_kwargs)` mit `connection()` (Kontextmanager; öffnet bei
-  jedem Aufruf neu mit `psycopg.connect(url, connect_timeout=5, prepare_threshold=None, ...)`, setzt
-  `read_only = True` und `SET LOCAL statement_timeout = '5s'`, schließt am Ende, committet nie). `import
-  psycopg` und Aufruf als `psycopg.connect`, damit der Zähl-Test greift. `read_connection(database)`
-  (Kontextmanager; `None` gibt `NOT_CONFIGURED`; bildet `psycopg.Error` und unerwartete `Exception` auf
-  `DATABASE_ERROR` ab, `ToolError` geht unverändert durch). Konstanten `NOT_CONFIGURED`
-  (`"Die Datenbank ist nicht konfiguriert."`) und `DATABASE_ERROR`. Logger `hoffmann_data.db`.
-- `create_mcp_server(database=None)` und `create_app(config, database=None)`; ohne Argument baut
-  `create_app` `Database(config.database_url)`, wenn eine URL gesetzt ist.
-- `hoffmann_data.limits`: `MAX_QUERY_LENGTH = 200`, `DEFAULT_LIMIT = 5`, `MAX_LIMIT = 20`; Meldungen
-  `QUERY_INVALID`, `LIMIT_INVALID`, `ARTICLE_NUMBER_INVALID`, `CUSTOMER_QUERY_INVALID`.
+### Geplante Schnittstellen (die Tests legen sie fest; `get_product` und `find_customer` sind noch offen)
 - Ergebnisformen (`structuredContent`):
-  - `search_products` → `{"items": [{article_number, name, category, is_active}], "count": n}`.
+  - `search_products` → `{"items": [{article_number, name, category, is_active}], "count": n}` (umgesetzt).
   - `get_product` → `{"product": {article_number, name, category, description, technical_data,
     list_price, price_unit, lead_time_days, is_active, fits_assemblies: [{article_number, name, note}],
     compatible_parts: [{article_number, name, note}]} | null}`.
@@ -106,7 +72,7 @@ den erwarteten Grund, und pusht den roten Stand als eigenen `test:`-Commit
     last_name, email, job_title, language}], recent_activities: [{type, occurred_at, subject, summary,
     amount_eur, created_by, article_number}]} | null, "matched_by": "company"|"email"|"domain"|null}`.
     Kein Feld `ambiguous`.
-- `hoffmann_data.crm.pick_unique(rows)`: keine Zeile → `None`, eine → diese, mehr als eine →
+- `hoffmann_data.crm.pick_unique(rows)` (Etappe 6): keine Zeile → `None`, eine → diese, mehr als eine →
   `ToolError("Mehrdeutiger Treffer.")` (Konstante `AMBIGUOUS_MESSAGE`).
 
 ## d) Verbindliche Entscheidungen
@@ -123,11 +89,14 @@ den erwarteten Grund, und pusht den roten Stand als eigenen `test:`-Commit
 - **Suche**: Volltext `german` über Name und Beschreibung (`websearch_to_tsquery`), dazu Artikelnummer exakt
   und als Präfix (`starts_with`, nicht `LIKE`). Nur UND-Verknüpfung, kein ODER-Fallback. Keine Extension,
   keine Schemaänderung, kein Index (ein GIN-Index wäre ein eigener Schritt mit eigenem PR).
-  Reihenfolge: exakt, Präfix, Rang, dann `article_number`; inaktive Artikel gekennzeichnet
-  (`is_active: false`) und hinter den aktiven.
-- **Grenzen**: Suchtext 1 bis 200 Zeichen (nach `strip()`), keine Steuerzeichen; `limit` Standard 5,
-  1 bis 20; ungültige Eingabe gibt einen `ToolError` mit fester Meldung ohne Eingabewert. Artikelnummer
-  nach `strip()` und Großschreibung im Format des CHECK in `schema.sql`.
+  Reihenfolge: exakter Treffer zuerst (auch wenn der Artikel inaktiv ist), dann aktive vor inaktiven, darin
+  Präfix, dann Volltext nach Rang, dann `article_number`. Inaktive Artikel sind mit `is_active: false`
+  gekennzeichnet. Kleinschreibung der Artikelnummer wird zu Großbuchstaben normalisiert.
+- **Grenzen** (`limits.py`): Suchtext und Kundenangabe 1 bis 200 Zeichen nach `strip()`; abgelehnt wird jedes
+  Zeichen der Unicode-Kategorien C* (Cc, Cf, Cs, Co, Cn) sowie Zl und Zp. `limit` nur als echtes `int`, Standard
+  5, 1 bis 20. Artikelnummer: nach `strip()` reines ASCII, dann `upper()`, dann `fullmatch` im Format des CHECK
+  in `schema.sql`. Ungültige Eingabe gibt einen `ToolError` mit fester Meldung ohne Eingabewert; `null` und
+  falsche Typen gelten für alle Textparameter gleich.
 - **Rückgabe**: Nichttreffer ist `null` (`get_product`, `find_customer`) beziehungsweise eine leere Liste
   (`search_products`), kein Fehler; Fehler sind ungültige Eingabe und Datenbankprobleme. Preise und alle
   Geldbeträge (`list_price`, `amount_eur`) als String mit zwei Nachkommastellen (`"890.00"`). Keine internen
@@ -139,40 +108,47 @@ den erwarteten Grund, und pusht den roten Stand als eigenen `test:`-Commit
   (heute per UNIQUE-Constraint auf `domain`, `email` und `lower(company_name)` unmöglich) ist ein fester
   `ToolError("Mehrdeutiger Treffer.")`, nie Raten. Keine Dublettenlogik (das ist F08).
 - **Fehlerbehandlung in `db.py`**: fängt nur `psycopg`-Fehler und unerwartete Ausnahmen der
-  Datenbankabfrage; ein `ToolError` aus der Eingabeprüfung wird nicht verschluckt oder umgeschrieben (ein
-  Test dafür). Bei Datenbankfehlern loggt der Dienst auf WARNING nur Fehlerklasse und SQLSTATE, nie den
-  Text, nie Host oder Benutzer.
+  Datenbankabfrage (`except Exception` mit `noqa: BLE001`, Absicht); ein `ToolError` aus der Eingabeprüfung wird
+  nicht verschluckt oder umgeschrieben (ein Test dafür). Bei Datenbankfehlern loggt der Dienst auf WARNING nur
+  Fehlerklasse und SQLSTATE, nie den Text, nie Host oder Benutzer.
 - **Startprüfung** (Etappe 7): nur lesende Abfragen (`pg_roles`: `rolsuper`, `rolbypassrls`;
   `has_table_privilege` für INSERT, UPDATE, DELETE, TRUNCATE auf die fünf Tabellen), kein echter
-  Schreibversuch, **kein Abschalter**; Anpassung nach dem Probelauf in Etappe 9.
-- **Abhängigkeit** `psycopg[binary]==3.3.6` in `mcp-server/requirements.txt` ist eingetragen und freigegeben.
-  Nur `db.py` darf `psycopg` importieren.
+  Schreibversuch, **kein Abschalter**; Anpassung nach dem Probelauf in Etappe 9. `test_package_sql_rules.py`
+  erlaubt die Rechtenamen nur in `db.py` und nur als eigenständige Zeichenketten.
+- **Abhängigkeiten** in `mcp-server/requirements.txt`: `psycopg[binary]==3.3.6` und `pydantic==2.13.5`
+  (explizit gepinnt, weil `server.py` `WithJsonSchema` direkt importiert); `pydantic_core` kommt mit pydantic,
+  `typing_extensions` wird nicht verwendet. Nur `db.py` darf `psycopg` importieren.
 - **Lokale Datei** `db/schema.sql`: In Etappe 8 werden nur die Kommentare (Z. 4 und 136–138) angepasst. Kein
   Test legt Inhalt oder Hash der Datei fest; `test_seed_run.py` entfernt `--`-Kommentare und prüft den Code.
 
 ## e) Arbeitsabsprachen
 
-- Ablauf je Etappe: **T** (Claude schreibt die Tests) → **R** (der Mensch führt den Rot-Lauf aus und zeigt
-  die Ausgabe) → **I** (Claude implementiert) → **G** (grüner Lauf durch den Menschen).
+- Ablauf je Etappe mit Tests: **T** (Claude schreibt die Tests) → **R** (der Mensch führt den Rot-Lauf aus und
+  zeigt die Ausgabe) → **I** (Claude implementiert) → **G** (grüner Lauf durch den Menschen). Für Etappe 5
+  und 6 gibt es keinen Schritt T und R mehr (Tests liegen), nur Plan, I und G.
 - Claude führt **keine Befehle** aus und nennt sie nur, auch keine lesenden in der Shell. Lesen mit
   Read/Grep/Glob ist erlaubt.
 - Edits einzeln zur Freigabe, nie im Auto-Modus.
 - Commits und Push macht der Mensch; Claude zeigt vorher den Diff. Nie auf `main` pushen, nie selbst
   mergen, Pull Request erst, wenn alles grün ist.
-- Der rote Stand jeder Etappe wird gepusht, damit der Chat-Assistent die Tests vor der Implementierung
-  liest.
+- Der rote Stand jeder Etappe mit Tests wird gepusht, damit der Chat-Assistent die Tests vor der
+  Implementierung liest.
 - PowerShell-Befehle immer einzeln und kopierbar nennen.
 - Passwörter und `.env`-Dateien nie lesen oder ausgeben; keine `.env` im Projekt anlegen.
 - Fehler von Claude gehören sofort in `AGENT_LOG.md`.
+- Sonderzeichen im Quelltext nur als Escapes (achtstellig mit `\U`); die Schreibwerkzeuge wandeln die kurze
+  Form in das wörtliche Zeichen um. Nach dem Schreiben mit einer Suche prüfen.
 
 ## f) Lokale Testumgebung (ohne Passwort)
 
 - PostgreSQL 17 lokal als Windows-Dienst `postgresql-x64-17`, lauscht nur auf localhost (Port 5432).
-- `TEST_DATABASE_URL` setzt der Mensch nur pro PowerShell-Sitzung und entfernt sie danach
-  (`Remove-Item Env:TEST_DATABASE_URL`). Der Benutzer braucht `CREATEROLE` für die Rollen-Tests.
+- `TEST_DATABASE_URL` ist in der Benutzer-Umgebung des Menschen gesetzt (hier kein Wert). In einem neuen
+  Fenster muss sie geladen sein; sonst werden die Tests mit Datenbank übersprungen und ein Lauf sagt nichts.
+  Der Benutzer braucht `CREATEROLE` für die Rollen-Tests.
 - Ohne die Variable werden die Tests mit Datenbank lokal übersprungen. In GitHub Actions sind sie ein
   Fehler, damit die Pipeline nie grün ist, ohne dass sie lief. Ist die Variable gesetzt, die Datenbank aber
   nicht erreichbar, ist das ein Fehler (`connect_timeout=5`, feste Meldung), kein Skip.
+- Python 3.13 (lokal und in CI).
 
 ## g) Erkenntnisse und Fallen
 
@@ -199,10 +175,40 @@ den erwarteten Grund, und pusht den roten Stand als eigenen `test:`-Commit
 - Issue-Text „Seed soll Rollen-Skript anwenden“ für den Menschen (Etappe 8): `DROP TABLE` löscht Rechte und
   Policies, aktueller Workaround (Skript nach jedem Seed erneut ausführen), Vorschlag, betroffene Dateien
   `db/seed/writer.py` und `db/roles/data_service_ro.sql`. Claude legt kein Issue an.
+- Issue-Text „Fehlender Pflichtparameter: SDK-Meldung nennt das Argument-Dict“ (siehe i): nicht ohne Eingriff
+  ins SDK abstellbar; Vorschlag und Folgen für den Menschen aufschreiben. Claude legt kein Issue an.
 - Etappe 9: Supabase-Schritte (Rolle einspielen, Passwort separat setzen, `MCP_SERVER_DATABASE_URL`
   setzen, Probeaufruf, Prüfung von Pooler und Rollenname mit Projektkennung).
 - `ci.yml`-Diff für den Job `mcp-tests` (Postgres-17-Dienst und `TEST_DATABASE_URL` auf localhost:5432,
-  Aufbau wie im Job `schema-tests`; der Mensch wendet ihn an).
+  Aufbau wie im Job `schema-tests`; der Mensch wendet ihn an). In CI prüfen, ob die Suchtests mit Umlauten in
+  Großschreibung bestehen (siehe i, Locale).
 - Der Pull Request erst danach, mit `code-reviewer` und `security-reviewer` und grüner Pipeline.
 - F08: Freigabe-Mechanismus für `create_lead` (technisch, nicht nur Beschreibungstext), getrennte Token für
   Lesen und Schreiben, Prüfungen 2 und 3 aus DATENMODELL §5 auch in den Schreib-Werkzeugen.
+
+## i) Gelernte Punkte für ADR 0004 und den Bericht (Etappe 3 und 4)
+
+- **Abhängigkeiten:** `pydantic==2.13.5` ist explizit gepinnt; kein `typing_extensions`, Ergebnistypen sind
+  `typing.TypedDict` (Python 3.13).
+- **Eigene Typprüfung:** `query` und `limit` sind `Annotated[Any, WithJsonSchema(...)]` mit eigener Prüfung in
+  `limits.py`. Grund: Das SDK gibt bei Pydantic-Meldungen den `input_value` an den Client zurück
+  (`tools/base.py:153-156`); die einfache Signatur (`limit: int`, `query: str`) liefert dann keine feste Meldung
+  ohne Echo. Dasselbe gilt für `article_number` und die Kundenangabe in Etappe 5 und 6.
+- **JSON-Vorparser des SDKs** (`func_metadata.py:254-266`): Suchtexte `null`, `[]` und `{}` ersetzt er durch den
+  geparsten Wert, sie werden abgelehnt. Für `true` und `false` meldet die Vorgabe dasselbe; nach dem Lesen von
+  Zeile 261 (`bool` ist ein `int`) bleibt der Text erhalten und wird nur wegen seiner Form abgelehnt oder
+  gesucht. Die Angabe ist mit einem Lauf zu prüfen, bevor sie in ADR 0004 steht.
+- **Fehlender Pflichtparameter:** Die SDK-Meldung nennt das Argument-Dict (Issue später, siehe h).
+- **`art` in Python:** Die Großschreibung der Artikelnummer in der Suche wird in Python berechnet (nur bei
+  ASCII), nicht mit `upper()` in SQL: Das hängt vom Locale der Datenbank ab und machte aus `ſb-1001`
+  `SB-1001`.
+- **Einzelnes Surrogat** (`"a\ud800b"`): Der Transport weist es ab (HTTP 400, JSON-RPC -32700, Parse error).
+  `limits.py` lehnt Kategorie Cs trotzdem ab und bleibt Pflicht, weil der Schutz nicht vom Transportpfad
+  abhängen darf.
+- **Betriebssystem:** Windows lehnt einen geschlossenen Loopback-Port nicht sofort ab (`ConnectionTimeout` nach
+  5 Sekunden, der Test dauert etwa 5,5 Sekunden); Linux liefert `OperationalError`. Der Test akzeptiert beides.
+- **Locale:** Umlaute in Großschreibung (Volltext, `lower()`) hängen vom Locale der Datenbank ab. Lokal und im
+  Prototyp erfüllt, in CI zu prüfen.
+- **Sonderzeichen im Quelltext:** `ruff check` (PLE2502, PLE2515) fand wörtliche Steuer- und Formatzeichen in
+  `test_limits.py`. Escapes immer achtstellig mit `\U`, danach mit Suche prüfen (siehe AGENT_LOG).
+- **`noqa: BLE001`** in `db.py` ist Absicht: Auch unerwartete Ausnahmen dürfen keinen Text nach außen tragen.
