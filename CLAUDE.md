@@ -96,5 +96,7 @@ Durchsetzung:
 - Der echte API-Schlüssel liegt außerhalb des Projektordners. Lege nie eine `.env` im Projekt an.
 - Das Befüllskript (`python -m db.seed`) läuft nie gegen die echte Datenbank durch dich. Das macht der Mensch.
 - Gib dem code-reviewer bei geänderten Dateien den Diff mit, sonst sieht er die Änderung nicht.
+- Der Format-Hook formatiert `.py`-, `.ts`-, `.tsx`-, `.js`-, `.jsx`-, `.json`- und `.css`-Dateien nach jedem Edit oder Write
+  um. Vor dem nächsten Edit in einer geänderten Region die Datei neu lesen.
 - Nach dem Öffnen eines Pull Requests auf die Pipeline warten (Hook-Tests, Formatierung). Ist sie rot,
   nenne die Ursache aus dem Protokoll und umgehe sie nicht.

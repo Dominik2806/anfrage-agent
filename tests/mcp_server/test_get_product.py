@@ -3,7 +3,7 @@
 Die Tests laufen durch die ganze App gegen PostgreSQL unter der lesenden Rolle (Fixture tool_call) und
 brauchen TEST_DATABASE_URL. Der Katalog kommt aus data/stammdaten (Fixture catalog).
 
-Festgelegt (docs/plans/F07-stand.md, Abschnitt c und d): Ein unbekannter Artikel ist `{"product": null}`,
+Festgelegt (mcp-server/README.md, Abschnitt "Schnittstellen"): Ein unbekannter Artikel ist `{"product": null}`,
 kein Fehler. Preise als Text mit zwei Nachkommastellen. Keine internen IDs; Verweise über Artikelnummern.
 Ersatzteile (`fits_assemblies`: passt zu Anlage) und Zubehör einer Anlage (`compatible_parts`) stammen aus
 product_fits; Varianten erben die Zuordnung nicht.

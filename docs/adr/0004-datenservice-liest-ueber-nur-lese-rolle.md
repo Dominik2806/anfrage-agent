@@ -24,8 +24,11 @@ könnte auch schreiben, ein Fehler im Code oder in einer Eingabe träfe die Date
    (`rolle-ist-superuser`, `schreibrecht:<RECHT>:<tabelle>` und so weiter). **Es gibt keinen Schalter**, der sie abschaltet.
 4. Fehlermeldungen und Logs nennen nie Eingabewerte, Rollenname, Host, Benutzer, Datenbankname, URL oder Passwort. Eine Ausnahme
    liegt im SDK: Fehlt ein Pflichtargument, gibt es den Argument-Dict (bis etwa 50 Zeichen) in der Fehlermeldung zurück. Das erreicht
-   nur den Aufrufer und ist eine bekannte Einschränkung, die als Issue nachgetragen wird. Eingaben prüft `limits.py`, bevor die
+   nur den Aufrufer und ist eine bekannte Einschränkung (Issue #21, Lösung offen). Eingaben prüft `limits.py`, bevor die
    Datenbank berührt wird; Werte gehen nur als Parameter an feste SQL-Texte.
+5. Die Werkzeuge sind synchrone Funktionen (`def`), die Abfragen laufen mit synchronem psycopg, nicht mit asyncpg. Das SDK führt
+   synchrone Werkzeuge laut Quelltext (mcp 2.3.0) in einem Worker-Thread aus, die Abfrage blockiert die Schleife dann nicht; per Test
+   ist das nicht belegt.
 
 ## Alternativen
 - Eine Rolle mit `BYPASSRLS` oder ein Superuser (die Annahme vor F07): verworfen. Sie kann schreiben und umgeht die Sperre,

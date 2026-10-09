@@ -131,6 +131,7 @@ Platzhalter.
 - **Suche:** Volltext (deutsch) über Name und Beschreibung: Der Suchtext geht unverändert an `websearch_to_tsquery` (`catalog.py`, `SEARCH_SQL`).
   Mehrere Wörter ohne Operator verknüpft PostgreSQL mit UND; die Syntax dieser Funktion (`or`, Anführungszeichen, `-`) wird nicht ausgeschlossen,
   ihr Verhalten ist hier nicht zugesichert und nicht getestet. Dazu kommt die Artikelnummer exakt oder als Präfix.
+  Es gibt keinen Volltextindex; ein GIN-Index wäre ein eigener späterer Schritt mit eigenem Pull Request.
   Ein exakter Treffer steht zuerst (auch wenn der Artikel ausgelaufen ist), dann aktive vor inaktiven Artikeln.
   `is_active: false` kennzeichnet ausgelaufene Artikel.
 - **`find_customer`:** Immer exakt, ohne Beachtung der Schreibung. Mit `@`: zuerst der Kontakt (`matched_by` `email`), sonst die
@@ -177,4 +178,5 @@ Die App läuft im Speicher, es wird kein Port geöffnet. Tests zu Token, Konfigu
 Datenbank. Die übrigen brauchen `TEST_DATABASE_URL` (nur `localhost`, Port 5432, nie die echte Datenbank): Sie legen ein
 eigenes Schema an und rollen jeden Test zurück. Die Rollen-Tests brauchen das Recht `CREATEROLE`, die Tests für Superuser und
 `BYPASSRLS` einen Superuser als Testbenutzer. Ohne die Variable werden die Tests mit Datenbank lokal übersprungen, in GitHub
-Actions ist das ein Fehler. Die CI startet dafür PostgreSQL 17.
+Actions ist das ein Fehler. Ist die Variable gesetzt, die Datenbank aber nicht erreichbar (Zeitlimit 5 Sekunden), scheitern die
+Tests mit Datenbank mit fester Meldung, sie werden nicht übersprungen. Die CI startet dafür PostgreSQL 17.

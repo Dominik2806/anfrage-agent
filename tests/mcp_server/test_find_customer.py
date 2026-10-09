@@ -5,7 +5,7 @@ brauchen TEST_DATABASE_URL, bis auf die Tests von pick_unique. Die Daten legt je
 (Fixture make); die synthetischen Stammdaten enthalten übrigens keinen Kunden ohne Aktivitäten, deshalb
 reicht für diesen Fall kein Blick in customers.json.
 
-Festgelegt (docs/plans/F07-stand.md, Abschnitt c und d):
+Festgelegt (mcp-server/README.md, Abschnitt "Schnittstellen", und Docstring von hoffmann_data/crm.py):
 - Eingabe mit "@": Kontakt über die E-Mail-Adresse (matched_by "email"), sonst Kunde über die Domain der
   Adresse (matched_by "domain"). Ohne "@": Firmenname (matched_by "company"), sonst, wenn die Eingabe wie
   eine Domain aussieht, Domain (matched_by "domain"). Immer exakt, ohne Beachtung der Groß-/Kleinschreibung;

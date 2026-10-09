@@ -16,6 +16,39 @@ und welche Konsequenz daraus folgte. Neueste Einträge stehen oben.
 
 ## Einträge
 
+### 2026-10-09 · F07 · Befunde der Reviewer zum Datenservice (Code von Claude Code)
+- **Aufgabe:** Review von F07 vor dem Pull Request mit code-reviewer und security-reviewer (Branch `feat/f07-read-tools`; Diff von
+  `mcp-server`, `db/roles`, `.github`, `.env.example`, die Tests als Dateiliste).
+- **Verhalten des Agenten:** Der Datenservice war mit drei Lesewerkzeugen, Nur-Lese-Rolle, Startprüfung und CI-Job umgesetzt, 936 Tests
+  grün (CI). Beide Reviewer fanden keine kritischen Befunde. Zuordnung der Befunde:
+  - security-reviewer:
+    - W1 SDK-Echo bei fehlendem Pflichtargument: Der Reviewer nannte W1 als Voraussetzung für die Freigabe. Stattdessen dokumentiert
+      (ADR 0004) und als Issue #21 erfasst, die Lösung ist offen.
+    - H1 Startprüfung deckt nur fünf Tabellen ab, H2 fehlende SELECT-Policy wird nicht erkannt: #22.
+    - H3 `sslmode=require` ohne Zertifikatsprüfung (auch als Satz im ADR), H4 keine Begrenzung gleichzeitiger Verbindungen, H6
+      Actions nur per Tag gepinnt: #23.
+    - H5 gespeicherte Texte unmarkiert, bis zu 20 Kontakte bei `find_customer`: #24.
+    - H6 (Teil Wegwerf-Passwort und `-rs`) und H7 neue Abhängigkeiten: keine Aktion, beide Versionen wurden in der CI installiert,
+      936 Tests grün.
+  - code-reviewer:
+    - Wichtig 1 Übergabedatei `F07-stand.md` im Diff: erledigt mit dem Löschcommit, kein Issue.
+    - Wichtig 2 drei Commit-Nachrichten ohne Suffix (F07): Verlauf nicht umgeschrieben, bei Squash zählt der PR-Titel, kein Issue.
+    - Hinweis 1 veralteter Kommentar in `server.py`: behoben (`bf1a425`).
+    - Hinweis 2 Worker-Thread-Kommentar ohne Test: Kommentar abgeschwächt (`bf1a425`), Test nicht ergänzt.
+    - Hinweis 3 `dburl.py` als Kopie von `db/seed/guard.py`: ADR-Satz ergänzt (`bf1a425`).
+    - Hinweis 4 Wegwerf-Passwort in `ci.yml`: keine Aktion.
+    - Hinweis 5 Etappe 9 vor dem Merge: #27.
+    - Rückfrage zur Protokollierung mit Lauf-ID, Tokens und Kosten: liegt beim Orchestrator (`agent/`), nicht beim Datenservice, keine
+      Aktion.
+- **Fehler:** Die Befunde betreffen Doku und Kommentare, die mehr behaupteten, als belegt war (Worker-Thread, UND-Verknüpfung der
+  Suche), eine bekannte Lücke im SDK (W1) und Grenzen der Startprüfung, die zum Teil schon im ADR standen.
+- **Entdeckung:** Reviews durch die Subagents code-reviewer und security-reviewer vor dem Pull Request.
+- **Korrektur:** Folgecommit `bf1a425` für die Kommentar- und Doku-Befunde. Die übrigen Punkte sind Issues: #19 (Seed soll das
+  Rollen-Skript anwenden), #20 (`is_active` in den Verweisen von `get_product`), #25 (Deadlock im Test-Setup), #26 (F08-Vormerkungen),
+  #27 (Probelauf gegen Supabase).
+- **Konsequenz:** Review-Befunde mit Issue-Nummer festhalten. Vor dem Pull Request prüfen, welche Befunde ein Reviewer als Voraussetzung
+  für die Freigabe nennt (hier W1).
+
 ### 2026-10-09 · F07 · „kein-select:“ im f-String gilt für die Paketregel als SQL (Code von Claude Code)
 - **Aufgabe:** Startprüfung der Datenbankrolle in `db.py` umsetzen (Etappe 7, Schritt I). Die Kurzbezeichnungen
   `schreibrecht:…`, `kein-select:…` und `tabelle-fehlt:…` sollten aus festen Teilen und dem Tabellennamen entstehen.
@@ -134,7 +167,7 @@ und welche Konsequenz daraus folgte. Neueste Einträge stehen oben.
 - **Entdeckung:** Review des Chat-Assistenten gegen `guard.py` (Commit `c293e51`).
 - **Korrektur:** Elf Fälle ergänzt (sechs ungültige, fünf gültige).
 - **Konsequenz:** Bei Paritätstests gegen bestehenden Code jede Verzweigung der Vorlage einzeln in der Tabelle
-  abhaken. Vermerkt in `docs/plans/F07-stand.md` (Abschnitt g).
+  abhaken. Der Hinweis stand in der Übergabedatei F07-stand.md, die mit dem Abschluss von F07 entfernt wurde.
 
 ### 2026-10-08 · F07 · UPDATE-Testfall prüfte nicht die Rechte (Test von Claude Code)
 - **Aufgabe:** `test_role_cannot_write` sollte zeigen, dass die lesende Rolle `data_service_ro` auf den fünf
@@ -146,8 +179,8 @@ und welche Konsequenz daraus folgte. Neueste Einträge stehen oben.
 - **Entdeckung:** Review des Chat-Assistenten (Commit `73e4d1b`), gegen PostgreSQL 16 bestätigt: `SET id = DEFAULT
   WHERE false` liefert für alle fünf Tabellen SQLSTATE 42501.
 - **Korrektur:** Der Fall lautet `UPDATE {} SET id = DEFAULT WHERE false`, mit einem Kommentar zum Grund.
-- **Konsequenz:** Rechtetests auf Identity-Spalten immer mit `SET id = DEFAULT`. Vermerkt in
-  `docs/plans/F07-stand.md` (Abschnitt g).
+- **Konsequenz:** Rechtetests auf Identity-Spalten immer mit `SET id = DEFAULT`. Der Hinweis stand
+  in der Übergabedatei F07-stand.md, die mit dem Abschluss von F07 entfernt wurde.
 
 ### 2026-10-08 · F06 · Befunde der Reviewer zum Datenservice (Code von Claude Code)
 - **Aufgabe:** Review von F06 vor dem Pull Request mit code-reviewer und security-reviewer

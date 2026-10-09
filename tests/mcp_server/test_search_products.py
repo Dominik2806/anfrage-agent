@@ -4,8 +4,10 @@ Die Tests laufen durch die ganze App (Token, Transport, SDK) gegen PostgreSQL un
 (Fixture tool_call) und brauchen TEST_DATABASE_URL. Der Katalog kommt aus data/stammdaten/products.json
 (Fixture catalog); einzelne Fälle legen eigene Artikel an (Fixture make).
 
-Festgelegt (docs/plans/F07-stand.md, Abschnitt d): Volltext "german" über Name und Beschreibung, nur
-UND-Verknüpfung (kein ODER-Fallback), dazu Artikelnummer exakt und als Präfix. Ein Nichttreffer ist eine
+Festgelegt (mcp-server/README.md, Abschnitt "Schnittstellen", Suche): Volltext "german" über Name und
+Beschreibung. Der Suchtext geht unverändert an websearch_to_tsquery: Wörter ohne Operator sind UND-verknüpft
+(kein ODER-Fallback, getestet), die Operatoren der Funktion (or, Anführungszeichen, -) sind nicht
+ausgeschlossen und nicht getestet. Dazu Artikelnummer exakt und als Präfix. Ein Nichttreffer ist eine
 leere Liste, kein Fehler. Ungültige Eingabe gibt einen ToolError mit fester Meldung ohne Eingabewert.
 """
 
