@@ -44,6 +44,7 @@ Gilt zusätzlich zur CLAUDE.md im Hauptordner. Verbindlich: `docs/AUFTRAG.md` (K
   Rechtenamen (`INSERT`, `SELECT` und so weiter) gehen nur als Parameter an die Abfrage, nie in den SQL-Text.
   `test_package_sql_rules.py` prüft beides.
 - Fehlermeldungen sind fest und enthalten nie Eingabewerte, Rollenname, Host, Benutzer, Datenbankname, URL oder Passwort.
+  Bekannte Ausnahme (ADR 0004): Fehlt ein Pflichtargument, gibt das SDK den Argument-Dict (bis etwa 50 Zeichen) zurück.
   Das Log nennt bei Datenbankfehlern nur Klasse und SQLSTATE.
 - Eingaben prüft `limits.py`, bevor die Datenbank berührt wird. Textparameter der Werkzeuge sind
   `Annotated[Any, WithJsonSchema(...)]` mit eigener Prüfung, weil das SDK bei Pydantic-Fehlern den Eingabewert zurückgibt.

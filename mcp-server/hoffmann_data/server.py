@@ -94,7 +94,7 @@ FIND_CUSTOMER_DESCRIPTION = (
 )
 
 # Größte erlaubte Anfrage (Auftrag 11.3: Eingaben begrenzen). Das SDK-Standardlimit liegt bei 4 MiB;
-# größere Anfragen mit gültigem Token bekommen 413. Eingabelängen je Werkzeug folgen mit F07.
+# größere Anfragen mit gültigem Token bekommen 413. Die Eingaben der Werkzeuge prüft limits.py.
 MAX_REQUEST_BODY_BYTES = 256 * 1024
 
 # Dieselben Werte, die das SDK für Loopback selbst einsetzt. Wir setzen sie ausdrücklich, damit der
@@ -112,7 +112,7 @@ def create_mcp_server(database: ConnectionSource | None = None) -> MCPServer:
         ),
     )
 
-    # Sync-Funktion: Das SDK führt sie in einem Worker-Thread aus, die Datenbankabfrage blockiert die Schleife nicht.
+    # Sync-Funktion: Laut SDK-Quelltext (mcp 2.3.0) läuft sie in einem Worker-Thread, die Abfrage blockiert die Schleife dann nicht (nicht per Test belegt).
     @server.tool(name="search_products", description=SEARCH_PRODUCTS_DESCRIPTION)
     def search_products(
         query: Annotated[Any, WithJsonSchema(QUERY_SCHEMA)],

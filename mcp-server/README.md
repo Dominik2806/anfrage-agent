@@ -51,8 +51,8 @@ Rollenname, Host, Benutzer, Datenbankname, Passwort oder Token in der Meldung.
 | `rolle-umgeht-rls` | Die Rolle hat `BYPASSRLS`. | Eine Rolle ohne `BYPASSRLS` verwenden. |
 | `schreibrecht:<RECHT>:<tabelle>` | Die Rolle darf `INSERT`, `UPDATE`, `DELETE` oder `TRUNCATE` auf der Tabelle (`INSERT` und `UPDATE` auch als Spaltenrecht). | Das Skript erneut ausführen (es entzieht alle Tabellenrechte und vergibt nur `SELECT`), Mitgliedschaften der Rolle prüfen. |
 | `kein-select:<tabelle>` | Die Rolle darf die Tabelle nicht lesen. | Das Skript erneut ausführen (üblich nach einem Seed-Reset). |
-| `create-im-schema` | Die Rolle darf im aktuellen Schema Objekte anlegen. Unter PostgreSQL bis Version 14 hat PUBLIC dieses Recht auf `public`. | Das Recht entziehen. |
-| `tabelle-fehlt:<tabelle>` | Die Tabelle ist über den `search_path` nicht auffindbar. | Datenbank und Schema der URL prüfen, Tabellen mit `python -m db.seed` anlegen. |
+| `create-im-schema` | Die Rolle darf im aktuellen Schema Objekte anlegen. Unter PostgreSQL bis Version 14 hat PUBLIC dieses Recht auf `public`. | Das Recht entziehen: `REVOKE CREATE ON SCHEMA <schema> FROM <Rolle>;`, kommt es über `PUBLIC`, zusätzlich `REVOKE CREATE ON SCHEMA <schema> FROM PUBLIC;` (betrifft alle Rollen, der Mensch prüft das vorher). |
+| `tabelle-fehlt:<tabelle>` | Die Tabelle ist über den `search_path` nicht auffindbar. | Datenbank und Schema der URL prüfen. Das Seed-Skript löscht vorhandene Tabellen samt Daten und führt nur der Mensch aus (Einzelheiten: `docs/DATENMODELL.md`, Abschnitt 4). |
 | `datenbankfehler` | Verbindung oder Abfrage sind gescheitert (nicht erreichbar, falsche Zugangsdaten, Zeitlimit von 5 Sekunden). | URL, Netz und Zugangsdaten prüfen. Das Log hat genau ein WARNING mit Klasse und SQLSTATE. |
 
 Die Prüfung ist eine Momentaufnahme beim Start und deckt nur diese fünf Tabellen und das Recht `CREATE` im aktuellen Schema ab.
@@ -128,7 +128,9 @@ Platzhalter.
   echte ganze Zahl. Eine ungültige Eingabe ergibt einen festen Fehler (`isError: true`) ohne den Eingabewert, die Datenbank wird
   nicht berührt. Texte, die als JSON `null`, Liste oder Objekt lesbar sind (`null`, `[]`, `{}`), gelten als ungültig.
 - **Ausgaben:** Preise und Beträge als Text mit zwei Nachkommastellen, Zeiten als ISO-Text in UTC, keine internen IDs.
-- **Suche:** Volltext (deutsch) über Name und Beschreibung, nur UND-Verknüpfung, dazu die Artikelnummer exakt oder als Präfix.
+- **Suche:** Volltext (deutsch) über Name und Beschreibung: Der Suchtext geht unverändert an `websearch_to_tsquery` (`catalog.py`, `SEARCH_SQL`).
+  Mehrere Wörter ohne Operator verknüpft PostgreSQL mit UND; die Syntax dieser Funktion (`or`, Anführungszeichen, `-`) wird nicht ausgeschlossen,
+  ihr Verhalten ist hier nicht zugesichert und nicht getestet. Dazu kommt die Artikelnummer exakt oder als Präfix.
   Ein exakter Treffer steht zuerst (auch wenn der Artikel ausgelaufen ist), dann aktive vor inaktiven Artikeln.
   `is_active: false` kennzeichnet ausgelaufene Artikel.
 - **`find_customer`:** Immer exakt, ohne Beachtung der Schreibung. Mit `@`: zuerst der Kontakt (`matched_by` `email`), sonst die

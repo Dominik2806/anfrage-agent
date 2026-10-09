@@ -22,8 +22,10 @@ könnte auch schreiben, ein Fehler im Code oder in einer Eingabe träfe die Date
    Tabellen, `SELECT` auf allen fünf, kein `CREATE` im aktuellen Schema, alle fünf Tabellen vorhanden. Die Prüfung läuft nur mit
    lesenden Abfragen. Scheitert sie, endet der Start mit Exit-Code 1 und nennt auf stderr nur Kurzbezeichnungen
    (`rolle-ist-superuser`, `schreibrecht:<RECHT>:<tabelle>` und so weiter). **Es gibt keinen Schalter**, der sie abschaltet.
-4. Fehlermeldungen und Logs nennen nie Eingabewerte, Rollenname, Host, Benutzer, Datenbankname, URL oder Passwort. Eingaben
-   prüft `limits.py`, bevor die Datenbank berührt wird; Werte gehen nur als Parameter an feste SQL-Texte.
+4. Fehlermeldungen und Logs nennen nie Eingabewerte, Rollenname, Host, Benutzer, Datenbankname, URL oder Passwort. Eine Ausnahme
+   liegt im SDK: Fehlt ein Pflichtargument, gibt es den Argument-Dict (bis etwa 50 Zeichen) in der Fehlermeldung zurück. Das erreicht
+   nur den Aufrufer und ist eine bekannte Einschränkung, die als Issue nachgetragen wird. Eingaben prüft `limits.py`, bevor die
+   Datenbank berührt wird; Werte gehen nur als Parameter an feste SQL-Texte.
 
 ## Alternativen
 - Eine Rolle mit `BYPASSRLS` oder ein Superuser (die Annahme vor F07): verworfen. Sie kann schreiben und umgeht die Sperre,
@@ -38,6 +40,11 @@ könnte auch schreiben, ein Fehler im Code oder in einer Eingabe träfe die Date
 - Neue Abhängigkeiten `psycopg[binary]` und `pydantic`, beide gepinnt. Nur `db.py` importiert den Treiber (Test per AST).
 - Tests mit Datenbank brauchen `TEST_DATABASE_URL` (nur `localhost:5432`); zwei Testgruppen brauchen einen Superuser. Die CI
   startet dafür PostgreSQL 17.
+- `sslmode=require` verschlüsselt, prüft aber das Serverzertifikat nicht und schützt daher nur vor passivem Mitlesen
+  (`docs/DATENMODELL.md`, Abschnitt 4, sagt dasselbe zum Seed-Skript). Eine strengere Prüfung (`verify-full`) für Hosts außer
+  localhost ist für das Deployment (F30) als Härtung vorgesehen.
+- `hoffmann_data/dburl.py` ist eine gekürzte Kopie der URL-Regeln aus `db/seed/guard.py`; `tests/mcp_server/test_dburl_parity.py`
+  hält beide gleich. Beides zusammenzuführen ist offen.
 
 ### Grenzen der Startprüfung
 Die Prüfung ist eine **Momentaufnahme** beim Start: Rechte, die später vergeben werden, fallen erst beim nächsten Start auf.

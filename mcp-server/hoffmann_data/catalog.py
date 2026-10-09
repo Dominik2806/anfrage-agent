@@ -26,7 +26,8 @@ class SearchResult(TypedDict):
 
 
 # Treffer sind: Artikelnummer exakt oder als Präfix (starts_with, nicht LIKE: % und _ sind keine Platzhalter)
-# oder Volltext "german" über Name und Beschreibung (websearch_to_tsquery: nur UND, kein ODER-Fallback).
+# oder Volltext "german" über Name und Beschreibung. Der Suchtext geht unverändert an websearch_to_tsquery:
+# Wörter ohne Operator sind UND-verknüpft, die Operatoren der Funktion (or, Anführungszeichen, -) werden nicht ausgeschlossen.
 # Reihenfolge: exakter Treffer zuerst (auch wenn der Artikel inaktiv ist), dann aktive vor inaktiven, darin
 # Präfixtreffer, dann Volltext nach Rang, zuletzt die Artikelnummer.
 # art ist die Eingabe in Großbuchstaben oder NULL (nicht ASCII); alle Eingaben stehen als ::text, sonst kann
