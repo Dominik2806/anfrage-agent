@@ -21,13 +21,21 @@ Anmelden erlaubt, kein Superuser, kein `BYPASSRLS`, `SELECT` auf `products`, `pr
 `activities` mit je einer `SELECT`-Policy, `discount_rules` nicht lesbar (kommt mit F09). Das Skript enthält kein Passwort.
 
 1. Das Skript im Schema der Tabellen ausführen (Standard `public`), mit einem Benutzer, der Rollen anlegen und Rechte vergeben
-   darf (Supabase: SQL-Editor, sonst `psql`). Es ist wiederholbar: Ein zweiter Lauf ändert nichts.
+   darf (Supabase: SQL-Editor, sonst `psql`; der SQL-Editor läuft nicht als Superuser, siehe unten). Es ist wiederholbar: Ein zweiter
+   Lauf ändert nichts.
 2. Das Passwort getrennt setzen: `ALTER ROLE data_service_ro PASSWORD '<aus dem Passwortmanager>';`. Es steht nie im Repository.
 3. `MCP_SERVER_DATABASE_URL` setzen (siehe unten): `postgresql://data_service_ro:<passwort>@<host>:<port>/<datenbank>`.
 4. Nach jedem `python -m db.seed` das Skript erneut ausführen. Der Reset löscht die Tabellen und mit ihnen Rechte und Policies,
    ohne den erneuten Lauf scheitert die Startprüfung (`kein-select:<tabelle>`).
 
-Dieser Ablauf ist noch nicht gegen Supabase erprobt.
+### Hinweise für Supabase
+- Der SQL-Editor läuft als Benutzer `postgres`, der kein Superuser ist. Das Skript nennt deshalb die Option `SUPERUSER` nicht.
+- Die Verbindung geht über den Session Pooler (Port 5432). Der Benutzer heißt `data_service_ro.<Projektkennung>`:
+  `postgresql://data_service_ro.<projektkennung>:<passwort>@<pooler-host>:5432/<datenbank>?sslmode=require`
+- Das Passwort nur aus Buchstaben und Ziffern wählen, sonst muss es in der URL prozentkodiert werden.
+- Das Snippet mit `ALTER ROLE ... PASSWORD` enthält das Passwort. Nach dem Ausführen im SQL-Editor löschen.
+
+Erprobt am 2026-10-09 gegen Supabase über den Session Pooler.
 
 ## Start
 Aus dem Ordner `mcp-server`:

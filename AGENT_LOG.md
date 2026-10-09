@@ -16,6 +16,26 @@ und welche Konsequenz daraus folgte. Neueste Einträge stehen oben.
 
 ## Einträge
 
+### 2026-10-09 · F07 · Rollen-Skript nur als Superuser getestet, auf Supabase abgebrochen (Code und Test von Claude Code)
+- **Aufgabe:** Rollen-Skript `db/roles/data_service_ro.sql` und seine Tests schreiben (Etappe 1), dazu die Anleitung zum Einspielen
+  (Supabase SQL-Editor oder `psql`).
+- **Verhalten des Agenten:** Claude Code schrieb `ALTER ROLE ... LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS`
+  und führte das Skript in allen Tests mit dem Testbenutzer aus, in der CI also als Superuser `postgres`. Die Anleitung nannte den
+  Supabase SQL-Editor, ohne zu klären, mit welchem Benutzer das Skript dort läuft.
+- **Fehler:** Das Skript bricht im Supabase SQL-Editor ab: „permission denied to alter role ... Only roles with the SUPERUSER attribute may
+  alter roles with the SUPERUSER attribute“. Der Editor läuft nicht als Superuser, und neuere PostgreSQL-Versionen verbieten einem
+  Nicht-Superuser schon die Nennung der Option, auch als `NOSUPERUSER`. Der Ausführungsweg eines Nicht-Superusers war nie getestet.
+- **Entdeckung:** Probelauf gegen Supabase durch den Menschen (Etappe 9). Ohne `NOSUPERUSER` lief das Skript fehlerfrei durch.
+- **Korrektur:** Zuerst die Tests, rot gelaufen: ein Test auf den Skripttext (keine Nennung von `SUPERUSER`) und ein Test, der das
+  Skript zweimal als Hilfsrolle ohne Superuser ausführt (`CREATEROLE`, `CREATEDB`, `REPLICATION`, `BYPASSRLS`, Eigentümer von Schema
+  und Tabellen). Der zweite scheiterte mit `InsufficientPrivilege` („Nur Rollen mit dem SUPERUSER-Attribut können das
+  SUPERUSER-Attribut ändern“). Danach `NOSUPERUSER` aus dem Skript entfernt, mit Kommentar; 938 Tests grün, `ruff format` und
+  `ruff check` bestanden. Die Anleitung nennt jetzt die Besonderheiten von Supabase (Session Pooler, Benutzer mit Projektkennung,
+  Passwort, Snippet löschen).
+- **Konsequenz:** Skripte, die der Mensch auf einer gehosteten Datenbank ausführt, mit einer Rolle testen, die dem dortigen Benutzer
+  entspricht, nicht nur als Superuser. „Kein Superuser“ sichern jetzt der Standard von `CREATE ROLE` und die Startprüfung, nicht mehr
+  das Skript.
+
 ### 2026-10-09 · F07 · Befunde der Reviewer zum Datenservice (Code von Claude Code)
 - **Aufgabe:** Review von F07 vor dem Pull Request mit code-reviewer und security-reviewer (Branch `feat/f07-read-tools`; Diff von
   `mcp-server`, `db/roles`, `.github`, `.env.example`, die Tests als Dateiliste).

@@ -12,7 +12,7 @@ könnte auch schreiben, ein Fehler im Code oder in einer Eingabe träfe die Date
 
 ## Entscheidung
 1. Der Datenservice verbindet sich als Rolle `data_service_ro`. Das Skript `db/roles/data_service_ro.sql` legt sie an (ohne
-   Passwort, vom Menschen ausgeführt, wiederholbar): `LOGIN`, kein Superuser, kein `BYPASSRLS`,
+   Passwort, vom Menschen ausgeführt, wiederholbar): `LOGIN`, kein Superuser (Standard einer neuen Rolle, das Skript nennt die Option nicht, die Startprüfung lehnt sie ab), kein `BYPASSRLS`,
    `default_transaction_read_only = on`, `statement_timeout = 5s`, `SELECT` auf `products`, `product_fits`, `customers`,
    `contacts` und `activities` mit je einer `SELECT`-Policy. `discount_rules` ist für sie nicht lesbar (kommt mit F09).
 2. Jede Anfrage öffnet ihre eigene Verbindung (kein Pool), schreibgeschützt, mit Zeitlimit. Die URL kommt nur aus
@@ -55,7 +55,7 @@ Sie prüft **nur diese fünf Tabellen** und das Recht `CREATE` im aktuellen Sche
 Funktionen, Sequenzen und Schemas, Temporärtabellen und Rechte, die erst nach einem Wechsel in eine andere Rolle gälten. Sie
 prüft auch nicht, ob die Policies die richtigen Zeilen freigeben. **Die Datenbank bleibt die eigentliche Sperre**: Die Prüfung
 erkennt eine falsche URL oder Rolle, ersetzt aber die Rolle nicht. Unter PostgreSQL bis Version 14 hat PUBLIC `CREATE` auf dem
-Schema `public`, dort kann `create-im-schema` ein Fehlalarm sein. Gegen Supabase ist die Prüfung noch nicht erprobt.
+Schema `public`, dort kann `create-im-schema` ein Fehlalarm sein. Erprobt am 2026-10-09 gegen Supabase über den Session Pooler.
 
 ### Abweichungen und Lehren aus F07
 - `pydantic` ist explizit gepinnt (kein `typing_extensions`). `query`, `limit`, `article_number` sind `Annotated[Any, WithJsonSchema]`
