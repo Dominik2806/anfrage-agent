@@ -159,8 +159,13 @@ def test_start_with_invalid_database_url_fails_without_leaking(
 def test_start_with_valid_database_url_serves_once(
     token: str, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    from hoffmann_data import db
     from hoffmann_data.__main__ import main
 
+    # Etappe 7: main() prüft beim Start die Rolle und würde sich mit der Datenbank unter GOOD_URL verbinden.
+    # Dieser Test prüft nur den Start; die Prüfung selbst steht in test_role_check.py. raising=False, damit
+    # der Test vor und nach der Implementierung der Prüfung grün bleibt.
+    monkeypatch.setattr(db, "verify_read_only_role", lambda database: None, raising=False)
     calls = _block_uvicorn(monkeypatch)
     main({"MCP_SERVER_TOKEN": token, NAME: GOOD_URL})
     assert len(calls) == 1

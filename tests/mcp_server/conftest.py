@@ -303,6 +303,12 @@ class RoDatabase:
             self._conn.execute("RESET ROLE")
 
 
+@pytest.fixture
+def ro_database(conn: psycopg.Connection[Any], ro_role: str) -> RoDatabase:
+    """Die Test-Verbindung unter der lesenden Rolle aus dem Skript (für die Prüfung der Rolle beim Start)."""
+    return RoDatabase(conn, ro_role)
+
+
 def _tool_caller(client: TestClient, headers: dict[str, str]) -> ToolCall:
     """Aufrufer für tools/call mit Token: gibt `result` zurück (auch bei isError), Protokollfehler brechen ab."""
     counter = iter(range(1, 10_000))
