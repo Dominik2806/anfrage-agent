@@ -28,7 +28,10 @@ END
 $$;
 
 -- Attribute bei jedem Lauf setzen: kann sich anmelden, sonst nichts
-ALTER ROLE data_service_ro LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS;
+-- SUPERUSER wird absichtlich nicht genannt, auch nicht als NOSUPERUSER: Neuere PostgreSQL-Versionen verbieten einem
+-- Nicht-Superuser schon die Nennung der Option, und der SQL-Editor von Supabase läuft nicht als Superuser. Eine neue Rolle
+-- ist ohnehin kein Superuser (Standard von CREATE ROLE), und der Datenservice lehnt beim Start eine Rolle mit SUPERUSER ab.
+ALTER ROLE data_service_ro LOGIN NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS;
 
 -- Standardmäßig nur lesende Transaktionen und höchstens 5 Sekunden je Abfrage
 ALTER ROLE data_service_ro SET default_transaction_read_only = on;
