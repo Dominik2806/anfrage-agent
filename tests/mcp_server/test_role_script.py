@@ -6,7 +6,9 @@ Level Security ohne Policies nichts herausgibt. Die Tests ohne Datenbank prüfen
 die Rolle mit SET LOCAL ROLE. Alles wird am Ende des Tests zurückgerollt.
 """
 
+import os
 import re
+import uuid
 from typing import Any
 
 import psycopg
@@ -74,6 +76,12 @@ def test_role_script_grants_only_usage_and_select() -> None:
     assert granted == {"USAGE", "SELECT"}
     assert "discount_rules" not in code, "discount_rules bleibt bis F09 ohne Zugriff"
     assert not re.search(r"\b(INSERT|UPDATE|DELETE|TRUNCATE)\b", code, re.I)
+
+
+def test_role_script_does_not_name_the_superuser_option() -> None:
+    """Auch NOSUPERUSER bricht für einen Nicht-Superuser ab (Supabase SQL-Editor, neuere PostgreSQL-Versionen)."""
+    code = _code(ROLE_SCRIPT.read_text(encoding="utf-8"))
+    assert "superuser" not in code.lower()
 
 
 # Mit Datenbank: die Rolle
@@ -208,3 +216,75 @@ def test_policies_are_what_makes_rows_visible(
     with as_role(conn, ro_role):
         after = conn.execute("SELECT count(*) FROM products").fetchone()
     assert after == (0,)
+
+
+# Mit Datenbank: Ausführung als Nicht-Superuser (bildet den Supabase SQL-Editor nach)
+
+SCHEMA_TABLES = (
+    "products",
+    "product_fits",
+    "customers",
+    "contacts",
+    "activities",
+    "discount_rules",
+)
+
+
+@pytest.fixture
+def require_superuser_test_user(conn: psycopg.Connection[Any]) -> None:
+    """REPLICATION und BYPASSRLS an die Hilfsrolle vergeben kann nur ein Superuser."""
+    row = conn.execute("SELECT rolsuper FROM pg_roles WHERE rolname = current_user").fetchone()
+    if row is not None and row[0]:
+        return
+    message = "Der Testbenutzer ist kein Superuser: Dieser Fall braucht einen Superuser."
+    if os.environ.get("GITHUB_ACTIONS") == "true":
+        pytest.fail(message, pytrace=False)
+    pytest.skip(message)
+
+
+def test_script_runs_twice_as_a_non_superuser_with_hosting_attributes(
+    conn: psycopg.Connection[Any], db_schema: str, require_superuser_test_user: None
+) -> None:
+    """Supabase führt das Skript als postgres aus: kein Superuser, aber CREATEROLE, CREATEDB, REPLICATION,
+    BYPASSRLS und Eigentümer der Tabellen. Beide Läufe (neue und vorhandene Rolle) müssen fehlerfrei sein."""
+    hosting = f"hosting_{uuid.uuid4().hex[:12]}"
+    ro = f"ro_test_{uuid.uuid4().hex[:12]}"
+    script = render_role_script(ro)
+    conn.execute(
+        sql.SQL("CREATE ROLE {} LOGIN CREATEROLE CREATEDB REPLICATION BYPASSRLS").format(
+            sql.Identifier(hosting)
+        )
+    )
+    conn.execute(
+        sql.SQL("ALTER SCHEMA {} OWNER TO {}").format(
+            sql.Identifier(db_schema), sql.Identifier(hosting)
+        )
+    )
+    for table in SCHEMA_TABLES:
+        conn.execute(
+            sql.SQL("ALTER TABLE {}.{} OWNER TO {}").format(
+                sql.Identifier(db_schema), sql.Identifier(table), sql.Identifier(hosting)
+            )
+        )
+    with as_role(conn, hosting):
+        for _ in range(2):
+            # Eigene Teiltransaktion: Scheitert ein Lauf, bleibt die Transaktion für RESET ROLE benutzbar
+            # und die eigentliche Ausnahme geht nicht in einem Folgefehler unter.
+            with conn.transaction():
+                conn.execute(script)
+
+    row = conn.execute(
+        "SELECT rolsuper, rolcreatedb, rolcreaterole, rolbypassrls, rolreplication, rolcanlogin, "
+        "rolconfig FROM pg_roles WHERE rolname = %s",
+        (ro,),
+    ).fetchone()
+    assert row is not None
+    assert row[:6] == (False, False, False, False, False, True)
+    config = row[6] or []
+    assert "default_transaction_read_only=on" in config
+    assert "statement_timeout=5s" in config
+    policies = conn.execute(
+        "SELECT count(*) FROM pg_policies WHERE schemaname = current_schema() AND %s = ANY(roles)",
+        (ro,),
+    ).fetchone()
+    assert policies == (len(READABLE_TABLES),)
