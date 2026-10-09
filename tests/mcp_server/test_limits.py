@@ -23,12 +23,12 @@ CONTROL_CHARACTERS = ["\x00", "\n", "\r", "\t", "\x1b", "\x7f", "\x85"]
 # Weitere abzulehnende Zeichen, je Unicode-Kategorie ein Beispiel (als Escape, damit sie im Quelltext sichtbar sind)
 OTHER_REJECTED_CHARACTERS = {
     "einzelnes-surrogat-cs": "\ud800",
-    "zeilentrenner-zl": " ",
-    "absatztrenner-zp": " ",
-    "bidi-ueberschreibung-cf": "‮",
-    "nullbreite-leerstelle-cf": "​",
-    "privater-bereich-co": "",
-    "nicht-zugewiesen-cn": "͸",
+    "zeilentrenner-zl": "\U00002028",
+    "absatztrenner-zp": "\U00002029",
+    "bidi-ueberschreibung-cf": "\U0000202e",
+    "nullbreite-leerstelle-cf": "\U0000200b",
+    "privater-bereich-co": "\U0000e000",
+    "nicht-zugewiesen-cn": "\U00000378",
 }
 
 

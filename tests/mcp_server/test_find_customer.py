@@ -516,7 +516,7 @@ def test_missing_query_is_an_error(make: Any, tool_call: Any) -> None:
         # Werkzeug abweisen. Der Test belegt dann nur, dass die Datenbank nicht erreicht wird.
         pytest.param("a\ud800b", True, id="surrogat"),
         # Der Zeilentrenner ist gültiges JSON: Er muss das Werkzeug erreichen und dort abgelehnt werden.
-        pytest.param("a b", False, id="zeilentrenner"),
+        pytest.param("a\U00002028b", False, id="zeilentrenner"),
     ],
 )
 def test_surrogate_and_line_separator_do_not_reach_the_database(
