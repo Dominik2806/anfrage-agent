@@ -1,6 +1,6 @@
 """MCP-Server hoffmann-data: acht Schnittstellen aus Auftrag 6.4.
 
-Seit F07 ist search_products echt (Daten aus PostgreSQL, nur lesend). get_product und find_customer
+Seit F07 sind search_products und get_product echt (Daten aus PostgreSQL, nur lesend). find_customer
 (F07), create_lead und log_activity (F08), beide Resources und der Prompt sind noch Platzhalter: Sie
 liefern einen festen Fehler "noch nicht implementiert", nie Scheindaten, und haben keine Parameter.
 Fehlertexte enthalten keine Eingabewerte. Es gibt keine Werkzeuge zum Versenden oder Löschen
@@ -52,6 +52,27 @@ SEARCH_PRODUCTS_DESCRIPTION = (
     "Preise und Lieferzeiten liefert nur get_product. Nur Artikelnummern aus dieser Liste verwenden."
 )
 
+# Eingabeschema von get_product (Any mit eigenem Schema, aus demselben Grund wie bei search_products)
+ARTICLE_NUMBER_SCHEMA = {
+    "type": "string",
+    "title": "Article Number",
+    "description": (
+        "Artikelnummer, z. B. FB-1001 oder FB-1001-B8 (zwei Buchstaben, Bindestrich, vier Ziffern, "
+        "optional Bindestrich und Variante). Groß- und Kleinschreibung ist egal."
+    ),
+}
+GET_PRODUCT_DESCRIPTION = (
+    "Details zu einer Artikelnummer: Name, Kategorie, Beschreibung, technische Daten, Netto-Listenpreis "
+    "(Text mit zwei Nachkommastellen, je price_unit), Lieferzeit in Tagen laut Katalog (lead_time_days, "
+    "keine verbindliche Zusage) und Status is_active. fits_assemblies nennt die Anlagen, zu denen dieses "
+    "Ersatzteil passt, compatible_parts die Ersatzteile, die zu dieser Anlage passen (je Artikelnummer, "
+    "Name, Notiz). Leere Listen heißen: keine Zuordnung belegt, nichts ergänzen. Varianten erben die "
+    "Zuordnung ihres Basisartikels nicht. Unbekannte Artikelnummer: product ist null. Teile in "
+    "compatible_parts können ausgelaufen sein: Vor einer Empfehlung den Status des Teils mit "
+    "get_product prüfen (is_active) und die Notiz beachten. Preise und Lieferzeiten nur aus dieser "
+    "Antwort verwenden."
+)
+
 # Größte erlaubte Anfrage (Auftrag 11.3: Eingaben begrenzen). Das SDK-Standardlimit liegt bei 4 MiB;
 # größere Anfragen mit gültigem Token bekommen 413. Eingabelängen je Werkzeug folgen mit F07.
 MAX_REQUEST_BODY_BYTES = 256 * 1024
@@ -66,8 +87,8 @@ def create_mcp_server(database: ConnectionSource | None = None) -> MCPServer:
     server = MCPServer(
         "hoffmann-data",
         instructions=(
-            "Datenservice der Hoffmann Maschinenbau GmbH. search_products liest den Katalog; "
-            "die übrigen Schnittstellen sind noch Platzhalter."
+            "Datenservice der Hoffmann Maschinenbau GmbH. search_products und get_product lesen den "
+            "Katalog; die übrigen Schnittstellen sind noch Platzhalter."
         ),
     )
 
@@ -79,12 +100,11 @@ def create_mcp_server(database: ConnectionSource | None = None) -> MCPServer:
     ) -> catalog.SearchResult:
         return catalog.search_products(database, query, limit)
 
-    @server.tool(
-        name="get_product",
-        description="Details, Listenpreis und Lieferzeit zu einer Artikelnummer (Platzhalter).",
-    )
-    def get_product() -> str:
-        raise ToolError(NOT_IMPLEMENTED)
+    @server.tool(name="get_product", description=GET_PRODUCT_DESCRIPTION)
+    def get_product(
+        article_number: Annotated[Any, WithJsonSchema(ARTICLE_NUMBER_SCHEMA)],
+    ) -> catalog.ProductResult:
+        return catalog.get_product(database, article_number)
 
     @server.tool(
         name="find_customer",
