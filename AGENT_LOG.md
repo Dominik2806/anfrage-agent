@@ -16,6 +16,42 @@ und welche Konsequenz daraus folgte. Neueste Einträge stehen oben.
 
 ## Einträge
 
+### 2026-10-09 · F07 · Annahme „geschlossener Loopback-Port wird sofort abgelehnt“ gilt nur für Linux (Test von Claude Code)
+- **Aufgabe:** `test_unreachable_database_gives_fixed_error_and_leaks_no_credentials` sollte zeigen: Ist die
+  Datenbank nicht erreichbar, gibt der Datenservice die feste Meldung zurück, schreibt genau ein WARNING und
+  lässt keine Zugangsdaten in Antwort, Log, stdout und stderr.
+- **Verhalten des Agenten:** Claude Code nahm `127.0.0.1:1` als unerreichbare Adresse, schrieb im Kommentar „die
+  Verbindung wird sofort abgelehnt“ und prüfte die Fehlerklasse im WARNING mit `[A-Za-z]+Error`.
+- **Fehler:** Die Annahme stimmt nur für Linux (`OperationalError`). Unter Windows wird ein geschlossener
+  Loopback-Port nicht sofort abgelehnt: psycopg wartet bis `connect_timeout=5` und wirft `ConnectionTimeout`
+  („Datenbankfehler: ConnectionTimeout“, Lauf 5,5 s). Die Regex passte nicht, der Test war rot, obwohl der
+  Dienst richtig reagierte.
+- **Entdeckung:** Grüner Lauf von Etappe 4 durch den Menschen (722 bestanden, 148 fehlgeschlagen): Dieser Test war
+  der einzige Fehlschlag außerhalb der erwarteten roten Gruppen.
+- **Korrektur:** Regex `[A-Za-z]+(Error|Timeout)`; der Kommentar zu `UNREACHABLE_URL` nennt das Verhalten unter
+  Linux und unter Windows. Sonst bleibt der Test unverändert (feste Meldung, genau ein WARNING, keine Zugangsdaten).
+- **Konsequenz:** Annahmen zum Verhalten von Netzwerk und Betriebssystem im Test nennen oder plattformunabhängig
+  formulieren.
+
+### 2026-10-09 · F07 · Unsichtbare Zeichen wörtlich im Quelltext der Tests (Test von Claude Code)
+- **Aufgabe:** `test_limits.py` (Etappe 3) sollte Eingaben mit Steuer-, Format- und Trennzeichen ablehnen, unter
+  anderem U+202E (Bidi-Überschreibung), U+200B (Nullbreite-Leerstelle) und U+2028 (Zeilentrenner).
+- **Verhalten des Agenten:** Claude Code schrieb die Zeichen als kurze Unicode-Escapes (Backslash, kleines u, vier
+  Ziffern) in die Edit-Aufrufe und vermerkte im Quelltext „als Escape, damit sie im Quelltext sichtbar sind“.
+  Das Schreibwerkzeug wandelt diese Form beim Speichern in das wörtliche Zeichen um. Claude Code prüfte die
+  Datei danach nicht auf wörtliche Zeichen.
+- **Fehler:** Die Zeichen standen wörtlich im Quelltext (Trojan-Source-Muster, unlesbar), und der Kommentar
+  behauptete das Gegenteil. Betroffen waren `test_limits.py` sowie je ein Testfall in `test_search_products.py`
+  und `test_find_customer.py`.
+- **Entdeckung:** `ruff check` (PLE2502, PLE2515) beim Lauf durch den Menschen.
+- **Korrektur:** Im Scratchpad belegt, dass das Werkzeug die kurze Form umwandelt, die achtstellige Form
+  (`\U` mit acht Hexziffern) aber nicht. Alle Stellen auf `\U`-Escapes umgestellt und mit einer Suche über
+  `tests/mcp_server` auf die unsichtbaren und Steuerzeichen (U+0000 bis U+0008, U+000B, U+000C, U+000E bis U+001F,
+  U+007F bis U+009F, U+00AD, U+0378, U+200B bis U+200F, U+2028 bis U+202E, U+2060 bis U+206F, U+E000 bis U+F8FF,
+  U+FEFF) geprüft: kein Treffer.
+- **Konsequenz:** Nie unsichtbare oder Steuerzeichen wörtlich in Quelltext schreiben, immer Escapes (achtstellig
+  mit `\U`). Nach dem Schreiben die Datei mit einer Suche prüfen, nicht dem eigenen Kommentar glauben.
+
 ### 2026-10-08 · F07 · Regex für die DATABASE_URL-Prüfung traf einen eigenen Bezeichner (Test von Claude Code)
 - **Aufgabe:** In `test_package_has_no_database_access` sollte das nackte `DATABASE_URL` (Variable des
   Seed-Skripts) im Paket verboten bleiben, `MCP_SERVER_DATABASE_URL` aber erlaubt sein.

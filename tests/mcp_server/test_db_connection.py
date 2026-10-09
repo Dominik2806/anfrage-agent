@@ -27,7 +27,9 @@ from psycopg import errors
 from starlette.testclient import TestClient
 
 DB_LOGGER = "hoffmann_data.db"
-# Port 1 ist auf Loopback nicht belegt: Die Verbindung wird sofort abgelehnt (kein Warten auf ein Zeitlimit)
+# Port 1 ist auf Loopback nicht belegt, es antwortet nichts. Linux lehnt die Verbindung sofort ab
+# (OperationalError). Windows lehnt nicht sofort ab, sondern wartet bis zum Zeitlimit connect_timeout=5;
+# psycopg wirft dann ConnectionTimeout (der Test dauert dort etwa 5,5 Sekunden).
 UNREACHABLE_URL = "postgresql://geheimuser:geheimpasswort@127.0.0.1:1/geheimdb"
 SEARCH_ARGS = {"query": "Gurtband"}
 
@@ -243,7 +245,8 @@ def test_unreachable_database_gives_fixed_error_and_leaks_no_credentials(
     assert not result.get("structuredContent")
     records = _db_records(caplog)
     assert len(records) == 1 and records[0].levelno == logging.WARNING
-    assert re.search(r"[A-Za-z]+Error", records[0].getMessage())
+    # Linux: OperationalError, Windows: ConnectionTimeout (siehe UNREACHABLE_URL)
+    assert re.search(r"[A-Za-z]+(Error|Timeout)", records[0].getMessage())
     _assert_nothing_leaked(DB_SECRETS, result, caplog, capsys)
 
 
