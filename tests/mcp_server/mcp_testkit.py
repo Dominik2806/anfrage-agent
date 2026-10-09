@@ -5,7 +5,10 @@ mcp_server), ein Import über den Namen "conftest" könnte die falsche Datei tre
 """
 
 import json
+import re
 import sys
+from collections.abc import Iterator
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 
@@ -14,10 +17,55 @@ MCP_SERVER_DIR = ROOT / "mcp-server"
 if str(MCP_SERVER_DIR) not in sys.path:
     sys.path.insert(0, str(MCP_SERVER_DIR))
 
+# Rollen-Skript (F07). Die Tests führen es unter einem Zufallsnamen aus, damit die clusterweite Rolle
+# data_service_ro nicht kollidiert. Ersetzt wird nur der Name, per exakter Textersetzung.
+ROLE_SCRIPT = ROOT / "db" / "roles" / "data_service_ro.sql"
+ROLE_NAME = "data_service_ro"
+# So oft steht der Rollenname im Skript. Festgeschrieben: Ändert sich das Skript, ist die Zahl bewusst
+# anzupassen (sonst könnte die Ersetzung im Test eine Stelle verpassen).
+# Die 13 Vorkommen: 1 Abfrage (rolname = ...), 1 CREATE ROLE, 3 ALTER ROLE (Attribute, read_only,
+# statement_timeout), 1 GRANT USAGE, 1 REVOKE, 1 GRANT SELECT, 5 CREATE POLICY (je Tabelle eine).
+EXPECTED_ROLE_NAME_COUNT = 13
+ROLE_NAME_PATTERN = re.compile(r"[a-z_][a-z0-9_]{0,62}")
+# Tabellen, die die Rolle lesen darf (discount_rules bewusst nicht, das kommt mit F09)
+READABLE_TABLES = ("products", "product_fits", "customers", "contacts", "activities")
+
+
+def render_role_script(name: str) -> str:
+    """Das Rollen-Skript mit dem Rollennamen `name`. Bricht ab, wenn die Ersetzung nicht sauber greift."""
+    assert ROLE_NAME_PATTERN.fullmatch(name), "ungültiger Rollenname"
+    assert ROLE_NAME not in name or name == ROLE_NAME, (
+        "Testname darf den Originalnamen nicht enthalten"
+    )
+    text = ROLE_SCRIPT.read_text(encoding="utf-8")
+    assert text.count(ROLE_NAME) == EXPECTED_ROLE_NAME_COUNT, "Zahl der Vorkommen weicht ab"
+    rendered = text.replace(ROLE_NAME, name)
+    if name != ROLE_NAME:
+        assert ROLE_NAME not in rendered, "Originalname nach der Ersetzung übrig"
+        assert rendered.count(name) == EXPECTED_ROLE_NAME_COUNT
+    return rendered
+
+
+@contextmanager
+def as_role(conn: Any, role: str) -> Iterator[None]:
+    """Führt den Block unter SET LOCAL ROLE aus und setzt die Rolle am Ende zurück."""
+    from psycopg import sql
+
+    conn.execute(sql.SQL("SET LOCAL ROLE {}").format(sql.Identifier(role)))
+    try:
+        yield
+    finally:
+        conn.execute("RESET ROLE")
+
+
 BASE_URL = "http://127.0.0.1:8000"
 MCP_PATH = "/mcp"
 
 TOOL_NAMES = {"search_products", "get_product", "find_customer", "create_lead", "log_activity"}
+# F07: die drei lesenden Werkzeuge sind echt, die übrigen bleiben Platzhalter (F08)
+READ_TOOLS = {"search_products", "get_product", "find_customer"}
+PLACEHOLDER_TOOLS = {"create_lead", "log_activity"}
+PRODUCTS_JSON = ROOT / "data" / "stammdaten" / "products.json"
 RESOURCE_URIS = {"policy://tonalitaet", "policy://rabatte"}
 PROMPT_NAMES = {"antwort_entwurf"}
 NOT_IMPLEMENTED = "noch nicht implementiert"
@@ -39,3 +87,176 @@ def parse_rpc_body(response: Any) -> dict[str, Any]:
                 return json.loads(line[len("data:") :].strip())
         raise AssertionError(f"Kein data:-Ereignis im Strom: {response.text!r}")
     return response.json()
+
+
+# Marker für "Eingabewert darf nirgends zurückkommen" (Antwort, Log, stdout, stderr)
+SECRET_MARKER = "GEHEIM-4711"
+
+
+def error_text(result: dict[str, Any]) -> str:
+    """Text eines Werkzeugfehlers (`result` von tools/call mit isError). Bricht ab, wenn es kein Fehler ist."""
+    assert result.get("isError") is True, f"kein Fehler, sondern: {result!r}"
+    return " ".join(c.get("text", "") for c in result["content"])
+
+
+def structured(result: dict[str, Any]) -> dict[str, Any]:
+    """`structuredContent` eines erfolgreichen Werkzeugaufrufs. Bricht mit dem Fehlertext ab, wenn isError."""
+    assert result.get("isError") is not True, f"Werkzeugfehler: {error_text(result)}"
+    content = result.get("structuredContent")
+    assert isinstance(content, dict), f"kein structuredContent: {result!r}"
+    return content
+
+
+def all_keys(value: Any) -> set[str]:
+    """Alle Schlüssel aller verschachtelten Objekte (Listen werden durchlaufen)."""
+    if isinstance(value, dict):
+        keys = {str(k) for k in value}
+        for item in value.values():
+            keys |= all_keys(item)
+        return keys
+    if isinstance(value, list):
+        keys: set[str] = set()
+        for item in value:
+            keys |= all_keys(item)
+        return keys
+    return set()
+
+
+def assert_no_internal_ids(value: Any) -> None:
+    """Keine Ausgabe nennt interne IDs: kein Schlüssel `id` und keiner, der auf `_id` endet."""
+    found = sorted(k for k in all_keys(value) if k == "id" or k.endswith("_id"))
+    assert not found, f"interne IDs in der Ausgabe: {found}"
+
+
+def check_rejected_before_database(
+    response: Any, fixed_message: str, database_error: str, *, early_rejection_allowed: bool
+) -> str:
+    """Prüft die rohe HTTP-Antwort auf einen Aufruf mit unzulässigem Zeichen.
+
+    Erwartet: Das Werkzeug läuft und lehnt mit seiner festen Meldung ab (`fixed_message`), ohne
+    `database_error` und ohne structuredContent. Gibt dann "werkzeug" zurück.
+    Hat schon Transport oder SDK die Anfrage abgewiesen (HTTP-Fehler oder JSON-RPC-Fehler), ist das nur mit
+    `early_rejection_allowed` zulässig; dann gibt die Funktion "vor-werkzeug" zurück und druckt Status und
+    Text der Abweisung (sichtbar mit pytest -s). In keinem Fall darf die Datenbank erreicht worden sein.
+    """
+    assert database_error not in response.text, "der Wert hat die Datenbank erreicht"
+    body: dict[str, Any] = {}
+    if response.status_code == 200:
+        body = parse_rpc_body(response)
+        if "result" in body:
+            result = body["result"]
+            assert fixed_message in error_text(result)
+            assert not result.get("structuredContent")
+            return "werkzeug"
+    assert response.status_code >= 400 or "error" in body, f"nicht abgewiesen: {response.text!r}"
+    assert early_rejection_allowed, (
+        f"vor dem Werkzeug abgewiesen (HTTP {response.status_code}): {response.text[:300]!r}"
+    )
+    print(
+        f"ABGEWIESEN VOR DEM WERKZEUG: HTTP {response.status_code}, Text: {response.text[:300]!r}"
+    )
+    return "vor-werkzeug"
+
+
+# Datenbank-URLs für die Tests von dburl.py und für den Paritätstest gegen db/seed/guard.py (F07).
+# Alle Zugangswerte enthalten "geheim", damit Tests prüfen können, dass keine Meldung sie nennt.
+DB_SECRETS = ("geheimuser", "geheimpasswort", "geheimhost", "geheimdb")
+_CRED = "geheimuser:geheimpasswort"
+
+# (id, url): werden angenommen
+DBURL_VALID: list[tuple[str, str]] = [
+    ("localhost", f"postgresql://{_CRED}@localhost:5432/geheimdb"),
+    ("schema-postgres", f"postgres://{_CRED}@127.0.0.1/geheimdb"),
+    ("ipv6-loopback", f"postgresql://{_CRED}@[::1]:5432/geheimdb"),
+    ("remote-require", f"postgresql://{_CRED}@geheimhost.example:5432/geheimdb?sslmode=require"),
+    ("remote-verify-ca", f"postgresql://{_CRED}@geheimhost.example/geheimdb?sslmode=verify-ca"),
+    ("remote-verify-full", f"postgresql://{_CRED}@geheimhost.example/geheimdb?sslmode=verify-full"),
+    (
+        "pooler-benutzer-mit-punkt",
+        "postgresql://data_service_ro.geheimuser:geheimpasswort@geheimhost.example:6543/geheimdb"
+        "?sslmode=require",
+    ),
+    ("localhost-gross", f"postgresql://{_CRED}@LOCALHOST:5432/geheimdb"),
+    ("passwort-prozentkodiert", "postgresql://geheimuser:geheimpasswort%40x@localhost/geheimdb"),
+    ("passwort-mit-komma", "postgresql://geheimuser:geheimpasswort,2@localhost/geheimdb"),
+    (
+        "remote-weitere-parameter",
+        f"postgresql://{_CRED}@geheimhost.example/geheimdb?sslmode=require&connect_timeout=5",
+    ),
+    ("datenbankname-63-zeichen", f"postgresql://{_CRED}@localhost/" + "d" * 63),
+]
+
+# (id, url, umgebung): werden abgelehnt. Jeder Grund aus db/seed/guard.py kommt vor, damit der
+# Paritätstest belegt, dass dburl nicht lockerer ist als das Seed-Skript.
+DBURL_INVALID: list[tuple[str, str | None, dict[str, str]]] = [
+    ("none", None, {}),
+    ("leer", "", {}),
+    ("nur-leerzeichen", "   ", {}),
+    ("fremdes-schema", f"mysql://{_CRED}@localhost/geheimdb", {}),
+    ("schema-grossgeschrieben", f"POSTGRESQL://{_CRED}@localhost/geheimdb", {}),
+    ("kein-schema", f"{_CRED}@localhost/geheimdb", {}),
+    ("leerzeichen-vorn", f" postgresql://{_CRED}@localhost/geheimdb", {}),
+    ("leerzeichen-in-url", f"postgresql://{_CRED}@localhost/geheim db", {}),
+    ("zeilenumbruch", f"postgresql://{_CRED}@localhost/geheimdb\n", {}),
+    ("tabulator", f"postgresql://{_CRED}@localhost/geheimdb\t", {}),
+    ("nul", f"postgresql://{_CRED}@localhost/geheimdb\x00", {}),
+    ("nicht-ascii", "postgresql://geheimuser:geheimpasswörter@localhost/geheimdb", {}),
+    ("einzelner-surrogat", f"postgresql://{_CRED}@localhost/\ud800", {}),
+    ("raute-im-passwort", "postgresql://geheimuser:geheim#passwort@localhost/geheimdb", {}),
+    ("zwei-at", "postgresql://geheimuser:geheim@passwort@localhost/geheimdb", {}),
+    ("zwei-hosts", f"postgresql://{_CRED}@localhost,geheimhost.example/geheimdb", {}),
+    ("kein-host-unix-socket", "postgresql:///geheimdb?user=geheimuser", {}),
+    ("prozent-im-host", f"postgresql://{_CRED}@loc%61lhost/geheimdb", {}),
+    ("port-keine-zahl", f"postgresql://{_CRED}@localhost:abc/geheimdb", {}),
+    ("port-zu-gross", f"postgresql://{_CRED}@localhost:99999/geheimdb", {}),
+    ("kein-datenbankname", f"postgresql://{_CRED}@localhost", {}),
+    ("datenbankname-mit-leerzeichen", f"postgresql://{_CRED}@localhost/geheim%20db", {}),
+    ("param-host", f"postgresql://{_CRED}@localhost/geheimdb?host=geheimhost.example", {}),
+    ("param-hostaddr", f"postgresql://{_CRED}@localhost/geheimdb?hostaddr=10.0.0.1", {}),
+    ("param-service", f"postgresql://{_CRED}@localhost/geheimdb?service=geheimdb", {}),
+    ("param-dbname", f"postgresql://{_CRED}@localhost/geheimdb?dbname=geheimdb", {}),
+    ("env-pghostaddr", f"postgresql://{_CRED}@localhost/geheimdb", {"PGHOSTADDR": "10.0.0.1"}),
+    ("env-pgservice", f"postgresql://{_CRED}@localhost/geheimdb", {"PGSERVICE": "geheimdb"}),
+    ("remote-ohne-sslmode", f"postgresql://{_CRED}@geheimhost.example/geheimdb", {}),
+    (
+        "remote-sslmode-disable",
+        f"postgresql://{_CRED}@geheimhost.example/geheimdb?sslmode=disable",
+        {},
+    ),
+    (
+        "remote-sslmode-prefer",
+        f"postgresql://{_CRED}@geheimhost.example/geheimdb?sslmode=prefer",
+        {},
+    ),
+    ("remote-sslmode-allow", f"postgresql://{_CRED}@geheimhost.example/geheimdb?sslmode=allow", {}),
+    ("remote-sslmode-leer", f"postgresql://{_CRED}@geheimhost.example/geheimdb?sslmode=", {}),
+    (
+        "remote-sslmode-gross",
+        f"postgresql://{_CRED}@geheimhost.example/geheimdb?sslmode=REQUIRE",
+        {},
+    ),
+    (
+        "remote-sslmode-name-gross",
+        f"postgresql://{_CRED}@geheimhost.example/geheimdb?SSLMODE=require",
+        {},
+    ),
+    (
+        "remote-sslmode-doppelt",
+        f"postgresql://{_CRED}@geheimhost.example/geheimdb?sslmode=require&sslmode=require",
+        {},
+    ),
+    ("ipv6-unvollstaendig", f"postgresql://{_CRED}@[::1/geheimdb", {}),
+    (
+        "fragezeichen-im-passwort",
+        "postgresql://geheimuser:geheimpasswort?x@localhost/geheimdb",
+        {},
+    ),
+    (
+        "param-host-gross",
+        f"postgresql://{_CRED}@localhost/geheimdb?HOST=geheimhost.example",
+        {},
+    ),
+    ("datenbankname-zu-lang", f"postgresql://{_CRED}@localhost/" + "d" * 64, {}),
+    ("datenbankname-ungueltiges-utf8", f"postgresql://{_CRED}@localhost/geheim%FF", {}),
+    ("datenbankname-mit-slash", f"postgresql://{_CRED}@localhost/geheimdb/zweiter", {}),
+]

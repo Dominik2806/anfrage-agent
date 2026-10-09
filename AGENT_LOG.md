@@ -16,6 +16,192 @@ und welche Konsequenz daraus folgte. Neueste Einträge stehen oben.
 
 ## Einträge
 
+### 2026-10-09 · F07 · Rollen-Skript nur als Superuser getestet, auf Supabase abgebrochen (Code und Test von Claude Code)
+- **Aufgabe:** Rollen-Skript `db/roles/data_service_ro.sql` und seine Tests schreiben (Etappe 1), dazu die Anleitung zum Einspielen
+  (Supabase SQL-Editor oder `psql`).
+- **Verhalten des Agenten:** Claude Code schrieb `ALTER ROLE ... LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS`
+  und führte das Skript in allen Tests mit dem Testbenutzer aus, in der CI also als Superuser `postgres`. Die Anleitung nannte den
+  Supabase SQL-Editor, ohne zu klären, mit welchem Benutzer das Skript dort läuft.
+- **Fehler:** Das Skript bricht im Supabase SQL-Editor ab: „permission denied to alter role ... Only roles with the SUPERUSER attribute may
+  alter roles with the SUPERUSER attribute“. Der Editor läuft nicht als Superuser, und neuere PostgreSQL-Versionen verbieten einem
+  Nicht-Superuser schon die Nennung der Option, auch als `NOSUPERUSER`. Der Ausführungsweg eines Nicht-Superusers war nie getestet.
+- **Entdeckung:** Probelauf gegen Supabase durch den Menschen (Etappe 9). Ohne `NOSUPERUSER` lief das Skript fehlerfrei durch.
+- **Korrektur:** Zuerst die Tests, rot gelaufen: ein Test auf den Skripttext (keine Nennung von `SUPERUSER`) und ein Test, der das
+  Skript zweimal als Hilfsrolle ohne Superuser ausführt (`CREATEROLE`, `CREATEDB`, `REPLICATION`, `BYPASSRLS`, Eigentümer von Schema
+  und Tabellen). Der zweite scheiterte mit `InsufficientPrivilege` („Nur Rollen mit dem SUPERUSER-Attribut können das
+  SUPERUSER-Attribut ändern“). Danach `NOSUPERUSER` aus dem Skript entfernt, mit Kommentar; 938 Tests grün, `ruff format` und
+  `ruff check` bestanden. Die Anleitung nennt jetzt die Besonderheiten von Supabase (Session Pooler, Benutzer mit Projektkennung,
+  Passwort, Snippet löschen).
+- **Konsequenz:** Skripte, die der Mensch auf einer gehosteten Datenbank ausführt, mit einer Rolle testen, die dem dortigen Benutzer
+  entspricht, nicht nur als Superuser. „Kein Superuser“ sichern jetzt der Standard von `CREATE ROLE` und die Startprüfung, nicht mehr
+  das Skript.
+
+### 2026-10-09 · F07 · Befunde der Reviewer zum Datenservice (Code von Claude Code)
+- **Aufgabe:** Review von F07 vor dem Pull Request mit code-reviewer und security-reviewer (Branch `feat/f07-read-tools`; Diff von
+  `mcp-server`, `db/roles`, `.github`, `.env.example`, die Tests als Dateiliste).
+- **Verhalten des Agenten:** Der Datenservice war mit drei Lesewerkzeugen, Nur-Lese-Rolle, Startprüfung und CI-Job umgesetzt, 936 Tests
+  grün (CI). Beide Reviewer fanden keine kritischen Befunde. Zuordnung der Befunde:
+  - security-reviewer:
+    - W1 SDK-Echo bei fehlendem Pflichtargument: Der Reviewer nannte W1 als Voraussetzung für die Freigabe. Stattdessen dokumentiert
+      (ADR 0004) und als Issue #21 erfasst, die Lösung ist offen.
+    - H1 Startprüfung deckt nur fünf Tabellen ab, H2 fehlende SELECT-Policy wird nicht erkannt: #22.
+    - H3 `sslmode=require` ohne Zertifikatsprüfung (auch als Satz im ADR), H4 keine Begrenzung gleichzeitiger Verbindungen, H6
+      Actions nur per Tag gepinnt: #23.
+    - H5 gespeicherte Texte unmarkiert, bis zu 20 Kontakte bei `find_customer`: #24.
+    - H6 (Teil Wegwerf-Passwort und `-rs`) und H7 neue Abhängigkeiten: keine Aktion, beide Versionen wurden in der CI installiert,
+      936 Tests grün.
+  - code-reviewer:
+    - Wichtig 1 Übergabedatei `F07-stand.md` im Diff: erledigt mit dem Löschcommit, kein Issue.
+    - Wichtig 2 drei Commit-Nachrichten ohne Suffix (F07): Verlauf nicht umgeschrieben, bei Squash zählt der PR-Titel, kein Issue.
+    - Hinweis 1 veralteter Kommentar in `server.py`: behoben (`bf1a425`).
+    - Hinweis 2 Worker-Thread-Kommentar ohne Test: Kommentar abgeschwächt (`bf1a425`), Test nicht ergänzt.
+    - Hinweis 3 `dburl.py` als Kopie von `db/seed/guard.py`: ADR-Satz ergänzt (`bf1a425`).
+    - Hinweis 4 Wegwerf-Passwort in `ci.yml`: keine Aktion.
+    - Hinweis 5 Etappe 9 vor dem Merge: #27.
+    - Rückfrage zur Protokollierung mit Lauf-ID, Tokens und Kosten: liegt beim Orchestrator (`agent/`), nicht beim Datenservice, keine
+      Aktion.
+- **Fehler:** Die Befunde betreffen Doku und Kommentare, die mehr behaupteten, als belegt war (Worker-Thread, UND-Verknüpfung der
+  Suche), eine bekannte Lücke im SDK (W1) und Grenzen der Startprüfung, die zum Teil schon im ADR standen.
+- **Entdeckung:** Reviews durch die Subagents code-reviewer und security-reviewer vor dem Pull Request.
+- **Korrektur:** Folgecommit `bf1a425` für die Kommentar- und Doku-Befunde. Die übrigen Punkte sind Issues: #19 (Seed soll das
+  Rollen-Skript anwenden), #20 (`is_active` in den Verweisen von `get_product`), #25 (Deadlock im Test-Setup), #26 (F08-Vormerkungen),
+  #27 (Probelauf gegen Supabase).
+- **Konsequenz:** Review-Befunde mit Issue-Nummer festhalten. Vor dem Pull Request prüfen, welche Befunde ein Reviewer als Voraussetzung
+  für die Freigabe nennt (hier W1).
+
+### 2026-10-09 · F07 · „kein-select:“ im f-String gilt für die Paketregel als SQL (Code von Claude Code)
+- **Aufgabe:** Startprüfung der Datenbankrolle in `db.py` umsetzen (Etappe 7, Schritt I). Die Kurzbezeichnungen
+  `schreibrecht:…`, `kein-select:…` und `tabelle-fehlt:…` sollten aus festen Teilen und dem Tabellennamen entstehen.
+- **Verhalten des Agenten:** Claude Code schrieb `f"kein-select:{row['table_name']}"` und nahm an, die Paketregel in
+  `test_package_sql_rules.py` melde nur zusammengesetzte SQL-Sätze.
+- **Fehler:** Die Heuristik `SQL_LIKE` (`\bSELECT\b`, ohne Beachtung der Schreibung) hält jede Zeichenkette mit dem Wort
+  `select` für SQL, auch den festen Teil `kein-select:` (der Bindestrich ist eine Wortgrenze). Der f-String wurde als „SQL
+  durch Einsetzen gebaut“ gemeldet. Die Regel selbst war richtig, die Annahme falsch.
+- **Entdeckung:** `test_package_never_puts_values_into_sql_text` im Lauf des Menschen.
+- **Korrektur:** Das Dict `NO_SELECT_FAILURES` mit fünf festen Literalen (Tabellenname → volle Kurzbezeichnung); die Regel blieb
+  unverändert.
+- **Konsequenz:** Geplante Zeichenketten vor dem Schreiben gegen die Regeln der Paket-Tests durchspielen (verbotene Wörter,
+  `select`, `SET LOCAL`). Kurzbezeichnungen mit solchen Wörtern als feste Literale schreiben, nie zusammensetzen.
+
+### 2026-10-09 · F07 · Widerspruch zwischen zwei eigenen Testgruppen (Test von Claude Code)
+- **Aufgabe:** Tests für die Startprüfung der Datenbankrolle schreiben (Etappe 7, Schritt T).
+- **Verhalten des Agenten:** Der Vertrag in `test_role_check.py` verlangte die Kurzbezeichnung `create-im-schema`, und die Prüfung
+  braucht den Rechtenamen `CREATE`. Die Paketregel `test_package_sql_rules.py` (von Claude Code in Etappe 3 geschrieben) erlaubte
+  in `db.py` nur die exakten Zeichenketten INSERT, UPDATE, DELETE und TRUNCATE.
+- **Fehler:** Die neuen Vertragszeichenketten enthalten das verbotene Wort `create`. Die Implementierung hätte die vorhandene
+  Regel verletzen müssen. Beim Schreiben der Tests fiel das nicht auf.
+- **Entdeckung:** Beim Plan für Schritt I (Lesen der Regel), noch vor dem Code.
+- **Korrektur:** Rückfrage an den Menschen. Die Regel bekam eine minimale Ausnahme (nur `db.py`, nur exakt gleiche
+  Zeichenketten `CREATE` und `create-im-schema`), Commit `dfe3d0e`.
+- **Konsequenz:** Neue Vertragszeichenketten schon in Schritt T gegen die vorhandenen Paketregeln prüfen. Die Regeltests ändert der
+  Mensch oder Claude Code nur nach ausdrücklicher Freigabe (`mcp-server/CLAUDE.md`).
+
+### 2026-10-09 · F07 · Lint-Funde im eigenen Code (Code und Test von Claude Code)
+- **Aufgabe:** Datenbankzugriff (Etappe 4) und Tests der Startprüfung (Etappe 7) schreiben.
+- **Verhalten des Agenten:** Claude Code schrieb in `db.py` einen breiten `except Exception` ohne `# noqa: BLE001` und in
+  `test_role_check.py` `__enter__` mit dem Rückgabetyp `"_RecordingCursor"` statt `Self`.
+- **Fehler:** Zwei Verstöße gegen `ruff check` (BLE001 und PYI034). Der breite `except` ist Absicht (auch Unerwartetes darf keinen
+  Text nach außen tragen), gehört aber mit Begründung markiert.
+- **Entdeckung:** `ruff check` im Lauf des Menschen.
+- **Korrektur:** `noqa` mit Begründung, `-> Self`.
+- **Konsequenz:** Die CI führt jetzt `ruff check mcp-server` aus. Eigenen Code vor der Abgabe gegen diese Regeln prüfen.
+
+### 2026-10-09 · F07 · Fehler beim Schreiben der Tests und des ersten Entwurfs, selbst bemerkt (Code und Test von Claude Code)
+- **Aufgabe:** Tests der Lesewerkzeuge (Etappe 3) und `catalog.py` (Etappe 4) schreiben.
+- **Verhalten des Agenten:** Beim Gegenlesen vor der Abgabe fielen vier Fehler auf:
+  - Der Test auf das `outputSchema` der Lesewerkzeuge wäre vermutlich schon mit den Platzhaltern grün gewesen: Mit dem
+    Rückgabetyp `str` baut das SDK ein Schema mit dem Feld `result`, das nicht leer ist.
+  - In der Ablehnliste der Artikelnummer stand ein Fall mit angehängtem Zeilentrenner U+2028, den `strip()` entfernt. Die Nummer
+    wäre danach gültig gewesen.
+  - `@alpha-test.example` stand bei den Nichttreffern von `find_customer`, obwohl der Weg über die Domain trifft.
+  - Der erste Entwurf von `catalog.py` baute die Treffer mit `ProductHit(**row)` und einem `type: ignore`.
+- **Fehler:** Tests, die vor der Implementierung falsch grün oder dauerhaft falsch rot gewesen wären, und unnötig komplizierter Code.
+- **Entdeckung:** Gegenlesen vor der Abgabe, nicht durch einen Lauf.
+- **Korrektur:** Der Test prüft die festgelegten Feldnamen, die beiden Fälle sind entfernt, `catalog.py` baut die Treffer Feld für
+  Feld.
+- **Konsequenz:** Jeden Testfall vor der Abgabe gegen die geplante Regel durchspielen, positiv und negativ.
+
+### 2026-10-09 · F07 · Annahme „geschlossener Loopback-Port wird sofort abgelehnt“ gilt nur für Linux (Test von Claude Code)
+- **Aufgabe:** `test_unreachable_database_gives_fixed_error_and_leaks_no_credentials` sollte zeigen: Ist die
+  Datenbank nicht erreichbar, gibt der Datenservice die feste Meldung zurück, schreibt genau ein WARNING und
+  lässt keine Zugangsdaten in Antwort, Log, stdout und stderr.
+- **Verhalten des Agenten:** Claude Code nahm `127.0.0.1:1` als unerreichbare Adresse, schrieb im Kommentar „die
+  Verbindung wird sofort abgelehnt“ und prüfte die Fehlerklasse im WARNING mit `[A-Za-z]+Error`.
+- **Fehler:** Die Annahme stimmt nur für Linux (`OperationalError`). Unter Windows wird ein geschlossener
+  Loopback-Port nicht sofort abgelehnt: psycopg wartet bis `connect_timeout=5` und wirft `ConnectionTimeout`
+  („Datenbankfehler: ConnectionTimeout“, Lauf 5,5 s). Die Regex passte nicht, der Test war rot, obwohl der
+  Dienst richtig reagierte.
+- **Entdeckung:** Grüner Lauf von Etappe 4 durch den Menschen (722 bestanden, 148 fehlgeschlagen): Dieser Test war
+  der einzige Fehlschlag außerhalb der erwarteten roten Gruppen.
+- **Korrektur:** Regex `[A-Za-z]+(Error|Timeout)`; der Kommentar zu `UNREACHABLE_URL` nennt das Verhalten unter
+  Linux und unter Windows. Sonst bleibt der Test unverändert (feste Meldung, genau ein WARNING, keine Zugangsdaten).
+- **Konsequenz:** Annahmen zum Verhalten von Netzwerk und Betriebssystem im Test nennen oder plattformunabhängig
+  formulieren.
+
+### 2026-10-09 · F07 · Unsichtbare Zeichen wörtlich im Quelltext der Tests (Test von Claude Code)
+- **Aufgabe:** `test_limits.py` (Etappe 3) sollte Eingaben mit Steuer-, Format- und Trennzeichen ablehnen, unter
+  anderem U+202E (Bidi-Überschreibung), U+200B (Nullbreite-Leerstelle) und U+2028 (Zeilentrenner).
+- **Verhalten des Agenten:** Claude Code schrieb die Zeichen als kurze Unicode-Escapes (Backslash, kleines u, vier
+  Ziffern) in die Edit-Aufrufe und vermerkte im Quelltext „als Escape, damit sie im Quelltext sichtbar sind“.
+  Das Schreibwerkzeug wandelt diese Form beim Speichern in das wörtliche Zeichen um. Claude Code prüfte die
+  Datei danach nicht auf wörtliche Zeichen.
+- **Fehler:** Die Zeichen standen wörtlich im Quelltext (Trojan-Source-Muster, unlesbar), und der Kommentar
+  behauptete das Gegenteil. Betroffen waren `test_limits.py` sowie je ein Testfall in `test_search_products.py`
+  und `test_find_customer.py`.
+- **Entdeckung:** `ruff check` (PLE2502, PLE2515) beim Lauf durch den Menschen.
+- **Korrektur:** Im Scratchpad belegt, dass das Werkzeug die kurze Form umwandelt, die achtstellige Form
+  (`\U` mit acht Hexziffern) aber nicht. Alle Stellen auf `\U`-Escapes umgestellt und mit einer Suche über
+  `tests/mcp_server` auf die unsichtbaren und Steuerzeichen (U+0000 bis U+0008, U+000B, U+000C, U+000E bis U+001F,
+  U+007F bis U+009F, U+00AD, U+0378, U+200B bis U+200F, U+2028 bis U+202E, U+2060 bis U+206F, U+E000 bis U+F8FF,
+  U+FEFF) geprüft: kein Treffer.
+- **Konsequenz:** Nie unsichtbare oder Steuerzeichen wörtlich in Quelltext schreiben, immer Escapes (achtstellig
+  mit `\U`). Nach dem Schreiben die Datei mit einer Suche prüfen, nicht dem eigenen Kommentar glauben.
+
+### 2026-10-08 · F07 · Regex für die DATABASE_URL-Prüfung traf einen eigenen Bezeichner (Test von Claude Code)
+- **Aufgabe:** In `test_package_has_no_database_access` sollte das nackte `DATABASE_URL` (Variable des
+  Seed-Skripts) im Paket verboten bleiben, `MCP_SERVER_DATABASE_URL` aber erlaubt sein.
+- **Verhalten des Agenten:** Claude Code schlug `(?<!MCP_SERVER_)DATABASE_URL` vor und baute es so ein.
+- **Fehler:** Die Regex trifft auch den Bezeichner `DATABASE_URL_VAR` in `config.py`: Vor `DATABASE_URL` steht dort
+  kein `MCP_SERVER_`. Der Test scheiterte an erlaubtem Code. Dazu war die Meldung zum erwarteten Ergebnis des
+  Etappe-2-Laufs („Erwartetes Rot“) widersprüchlich formuliert, und der Config-Test auf `repr`/`str` lief vor der
+  Implementierung leer durch, weil er `database_url` nicht vorher prüfte (ein Test, der vor der Implementierung
+  grün ist, hätte auffallen müssen).
+- **Entdeckung:** Lauf durch den Menschen; die Rot-Erwartung und der leere Durchlauf im Review.
+- **Korrektur:** `\bDATABASE_URL\b` statt des Lookbehinds (der Unterstrich gehört zum Wort, daher trifft die Regex
+  weder `MCP_SERVER_DATABASE_URL` noch `DATABASE_URL_VAR`); der repr-Test prüft zuerst
+  `config.database_url == GOOD_URL`.
+- **Konsequenz:** Eine Regex gegen die Namen im Paket prüfen, bevor sie eingebaut wird. Erwartete Ergebnisse eines
+  roten Laufs nur nennen, wenn sie einzeln geprüft sind.
+
+### 2026-10-08 · F07 · URL-Tabellen deckten nicht alle Ablehnungsgründe von guard.py ab (Test von Claude Code)
+- **Aufgabe:** Paritätstest zwischen `hoffmann_data/dburl.py` und `db/seed/guard.py`: Was das Seed-Skript
+  ablehnt, lehnt `dburl` auch ab. Die Tabellen `DBURL_VALID` und `DBURL_INVALID` sollten jeden Ablehnungsgrund
+  abdecken.
+- **Verhalten des Agenten:** Die Tabellen wurden aus der Beschreibung der Regeln zusammengestellt, ohne jede
+  Verzweigung in `guard.py` einzeln gegenzuprüfen.
+- **Fehler:** Es fehlten Fälle für: IPv6 ohne schließende Klammer, `?` vor dem `@` im Passwort, Parametername in
+  Großbuchstaben (`HOST=`), Datenbankname zu lang, ungültiges UTF-8 im Namen und Schrägstrich im Namen. Bei den
+  gültigen URLs fehlten: großgeschriebener Host, prozentkodiertes Passwort, Komma im Passwort, weitere
+  Parameter neben `sslmode` und ein Datenbankname mit genau 63 Zeichen. Der Paritätstest hätte dadurch eine
+  zu lockere `dburl` nicht bemerkt.
+- **Entdeckung:** Review des Chat-Assistenten gegen `guard.py` (Commit `c293e51`).
+- **Korrektur:** Elf Fälle ergänzt (sechs ungültige, fünf gültige).
+- **Konsequenz:** Bei Paritätstests gegen bestehenden Code jede Verzweigung der Vorlage einzeln in der Tabelle
+  abhaken. Der Hinweis stand in der Übergabedatei F07-stand.md, die mit dem Abschluss von F07 entfernt wurde.
+
+### 2026-10-08 · F07 · UPDATE-Testfall prüfte nicht die Rechte (Test von Claude Code)
+- **Aufgabe:** `test_role_cannot_write` sollte zeigen, dass die lesende Rolle `data_service_ro` auf den fünf
+  Tabellen nicht schreiben darf (`InsufficientPrivilege`).
+- **Verhalten des Agenten:** Der UPDATE-Fall lautete `UPDATE {} SET id = id WHERE false`.
+- **Fehler:** Die Spalte `id` ist `GENERATED ALWAYS`. PostgreSQL meldet dafür „column id can only be updated to
+  DEFAULT“, und zwar vor der Rechteprüfung. Der Test erwartete `InsufficientPrivilege` und konnte so nicht grün
+  werden, obwohl die Rolle korrekt eingeschränkt war.
+- **Entdeckung:** Review des Chat-Assistenten (Commit `73e4d1b`), gegen PostgreSQL 16 bestätigt: `SET id = DEFAULT
+  WHERE false` liefert für alle fünf Tabellen SQLSTATE 42501.
+- **Korrektur:** Der Fall lautet `UPDATE {} SET id = DEFAULT WHERE false`, mit einem Kommentar zum Grund.
+- **Konsequenz:** Rechtetests auf Identity-Spalten immer mit `SET id = DEFAULT`. Der Hinweis stand
+  in der Übergabedatei F07-stand.md, die mit dem Abschluss von F07 entfernt wurde.
+
 ### 2026-10-08 · F06 · Befunde der Reviewer zum Datenservice (Code von Claude Code)
 - **Aufgabe:** Review von F06 vor dem Pull Request mit code-reviewer und security-reviewer
   (mcp-server/hoffmann_data, tests/mcp_server, Doku, CI-Job).

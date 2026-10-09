@@ -1,7 +1,7 @@
 -- Schema der Stammdaten (F05), Quelle: docs/DATENMODELL.md
 -- Getestet mit PostgreSQL 16 und 17; Mindestversion 15 wegen NULLS NOT DISTINCT.
 -- Nur Struktur: keine Daten, kein DROP. Löschen und Neuanlegen übernimmt das Seed-Skript.
--- Keine Volltextsuche und kein pg_trgm (kommen mit F07).
+-- Kein Volltextindex und kein pg_trgm. Die Suche (F07) rechnet to_tsvector zur Abfragezeit.
 
 -- Produktkatalog
 CREATE TABLE products (
@@ -133,9 +133,11 @@ CREATE TABLE discount_rules (
         UNIQUE NULLS NOT DISTINCT (customer_status, product_category, min_quantity)
 );
 
--- Row Level Security: aktiviert, bewusst ohne Policies.
--- Über die Supabase-API (anon, authenticated) ist nichts lesbar; der Datenservice
--- greift über eine Serverrolle zu, die RLS umgeht.
+-- Row Level Security: aktiviert, in diesem Skript bewusst ohne Policies.
+-- Über die Supabase-API (anon, authenticated) ist nichts lesbar. Der Datenservice
+-- liest über die Rolle data_service_ro (db/roles/data_service_ro.sql). Sie hat nur SELECT
+-- auf fünf Tabellen mit je einer SELECT-Policy und kein BYPASSRLS. discount_rules bleibt
+-- für sie unlesbar (F09). Nach einem Reset mit python -m db.seed das Rollen-Skript erneut ausführen.
 ALTER TABLE products       ENABLE ROW LEVEL SECURITY;
 ALTER TABLE product_fits   ENABLE ROW LEVEL SECURITY;
 ALTER TABLE customers      ENABLE ROW LEVEL SECURITY;

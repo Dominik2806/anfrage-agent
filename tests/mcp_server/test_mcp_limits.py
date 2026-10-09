@@ -18,14 +18,18 @@ from starlette.testclient import TestClient
 
 
 def _body_of_size(size: int) -> bytes:
-    """Gültiger JSON-RPC-Aufruf eines Platzhalter-Werkzeugs mit genau `size` Bytes (nur ASCII)."""
+    """Gültiger JSON-RPC-Aufruf eines Platzhalter-Werkzeugs mit genau `size` Bytes (nur ASCII).
+
+    create_lead statt eines Lese-Werkzeugs: Die Lese-Werkzeuge prüfen seit F07 ihre Eingabe (höchstens 200
+    Zeichen) und brauchen eine Datenbank; dieser Test prüft nur die Größenbegrenzung der Anfrage.
+    """
 
     def build(pad: int) -> bytes:
         payload = {
             "jsonrpc": "2.0",
             "id": 1,
             "method": "tools/call",
-            "params": {"name": "search_products", "arguments": {"query": "x" * pad}},
+            "params": {"name": "create_lead", "arguments": {"query": "x" * pad}},
         }
         return json.dumps(payload).encode("ascii")
 
