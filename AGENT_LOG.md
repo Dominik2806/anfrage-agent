@@ -16,6 +16,58 @@ und welche Konsequenz daraus folgte. Neueste Einträge stehen oben.
 
 ## Einträge
 
+### 2026-10-09 · F07 · „kein-select:“ im f-String gilt für die Paketregel als SQL (Code von Claude Code)
+- **Aufgabe:** Startprüfung der Datenbankrolle in `db.py` umsetzen (Etappe 7, Schritt I). Die Kurzbezeichnungen
+  `schreibrecht:…`, `kein-select:…` und `tabelle-fehlt:…` sollten aus festen Teilen und dem Tabellennamen entstehen.
+- **Verhalten des Agenten:** Claude Code schrieb `f"kein-select:{row['table_name']}"` und nahm an, die Paketregel in
+  `test_package_sql_rules.py` melde nur zusammengesetzte SQL-Sätze.
+- **Fehler:** Die Heuristik `SQL_LIKE` (`\bSELECT\b`, ohne Beachtung der Schreibung) hält jede Zeichenkette mit dem Wort
+  `select` für SQL, auch den festen Teil `kein-select:` (der Bindestrich ist eine Wortgrenze). Der f-String wurde als „SQL
+  durch Einsetzen gebaut“ gemeldet. Die Regel selbst war richtig, die Annahme falsch.
+- **Entdeckung:** `test_package_never_puts_values_into_sql_text` im Lauf des Menschen.
+- **Korrektur:** Das Dict `NO_SELECT_FAILURES` mit fünf festen Literalen (Tabellenname → volle Kurzbezeichnung); die Regel blieb
+  unverändert.
+- **Konsequenz:** Geplante Zeichenketten vor dem Schreiben gegen die Regeln der Paket-Tests durchspielen (verbotene Wörter,
+  `select`, `SET LOCAL`). Kurzbezeichnungen mit solchen Wörtern als feste Literale schreiben, nie zusammensetzen.
+
+### 2026-10-09 · F07 · Widerspruch zwischen zwei eigenen Testgruppen (Test von Claude Code)
+- **Aufgabe:** Tests für die Startprüfung der Datenbankrolle schreiben (Etappe 7, Schritt T).
+- **Verhalten des Agenten:** Der Vertrag in `test_role_check.py` verlangte die Kurzbezeichnung `create-im-schema`, und die Prüfung
+  braucht den Rechtenamen `CREATE`. Die Paketregel `test_package_sql_rules.py` (von Claude Code in Etappe 3 geschrieben) erlaubte
+  in `db.py` nur die exakten Zeichenketten INSERT, UPDATE, DELETE und TRUNCATE.
+- **Fehler:** Die neuen Vertragszeichenketten enthalten das verbotene Wort `create`. Die Implementierung hätte die vorhandene
+  Regel verletzen müssen. Beim Schreiben der Tests fiel das nicht auf.
+- **Entdeckung:** Beim Plan für Schritt I (Lesen der Regel), noch vor dem Code.
+- **Korrektur:** Rückfrage an den Menschen. Die Regel bekam eine minimale Ausnahme (nur `db.py`, nur exakt gleiche
+  Zeichenketten `CREATE` und `create-im-schema`), Commit `dfe3d0e`.
+- **Konsequenz:** Neue Vertragszeichenketten schon in Schritt T gegen die vorhandenen Paketregeln prüfen. Die Regeltests ändert der
+  Mensch oder Claude Code nur nach ausdrücklicher Freigabe (`mcp-server/CLAUDE.md`).
+
+### 2026-10-09 · F07 · Lint-Funde im eigenen Code (Code und Test von Claude Code)
+- **Aufgabe:** Datenbankzugriff (Etappe 4) und Tests der Startprüfung (Etappe 7) schreiben.
+- **Verhalten des Agenten:** Claude Code schrieb in `db.py` einen breiten `except Exception` ohne `# noqa: BLE001` und in
+  `test_role_check.py` `__enter__` mit dem Rückgabetyp `"_RecordingCursor"` statt `Self`.
+- **Fehler:** Zwei Verstöße gegen `ruff check` (BLE001 und PYI034). Der breite `except` ist Absicht (auch Unerwartetes darf keinen
+  Text nach außen tragen), gehört aber mit Begründung markiert.
+- **Entdeckung:** `ruff check` im Lauf des Menschen.
+- **Korrektur:** `noqa` mit Begründung, `-> Self`.
+- **Konsequenz:** Die CI führt jetzt `ruff check mcp-server` aus. Eigenen Code vor der Abgabe gegen diese Regeln prüfen.
+
+### 2026-10-09 · F07 · Fehler beim Schreiben der Tests und des ersten Entwurfs, selbst bemerkt (Code und Test von Claude Code)
+- **Aufgabe:** Tests der Lesewerkzeuge (Etappe 3) und `catalog.py` (Etappe 4) schreiben.
+- **Verhalten des Agenten:** Beim Gegenlesen vor der Abgabe fielen vier Fehler auf:
+  - Der Test auf das `outputSchema` der Lesewerkzeuge wäre vermutlich schon mit den Platzhaltern grün gewesen: Mit dem
+    Rückgabetyp `str` baut das SDK ein Schema mit dem Feld `result`, das nicht leer ist.
+  - In der Ablehnliste der Artikelnummer stand ein Fall mit angehängtem Zeilentrenner U+2028, den `strip()` entfernt. Die Nummer
+    wäre danach gültig gewesen.
+  - `@alpha-test.example` stand bei den Nichttreffern von `find_customer`, obwohl der Weg über die Domain trifft.
+  - Der erste Entwurf von `catalog.py` baute die Treffer mit `ProductHit(**row)` und einem `type: ignore`.
+- **Fehler:** Tests, die vor der Implementierung falsch grün oder dauerhaft falsch rot gewesen wären, und unnötig komplizierter Code.
+- **Entdeckung:** Gegenlesen vor der Abgabe, nicht durch einen Lauf.
+- **Korrektur:** Der Test prüft die festgelegten Feldnamen, die beiden Fälle sind entfernt, `catalog.py` baut die Treffer Feld für
+  Feld.
+- **Konsequenz:** Jeden Testfall vor der Abgabe gegen die geplante Regel durchspielen, positiv und negativ.
+
 ### 2026-10-09 · F07 · Annahme „geschlossener Loopback-Port wird sofort abgelehnt“ gilt nur für Linux (Test von Claude Code)
 - **Aufgabe:** `test_unreachable_database_gives_fixed_error_and_leaks_no_credentials` sollte zeigen: Ist die
   Datenbank nicht erreichbar, gibt der Datenservice die feste Meldung zurück, schreibt genau ein WARNING und

@@ -38,8 +38,8 @@ Laufzeit 8 Wochen, Meilensteine M0–M6, Features F01–F34 (Auftrag Kapitel 3).
 - Datenbank befüllen (löscht Tabellen, nie ohne den Menschen ausführen): `python -m db.seed` (unter Windows `.\.venv\Scripts\python.exe -m db.seed`). `DATABASE_URL` kommt aus der Umgebung, für Hosts außer localhost mit `sslmode=require`; bei vorhandenen Tabellen zusätzlich `SEED_CONFIRM_RESET` = Host.
 - Python-Tests: `python -m pytest tests/seed tests/db` (Tests mit Datenbank brauchen `TEST_DATABASE_URL`, nur localhost)
 - Datenservice installieren: `python -m pip install -r mcp-server/requirements.txt` (unter Windows `.\.venv\Scripts\python.exe -m pip install -r mcp-server/requirements.txt`)
-- Datenservice starten (aus dem Ordner `mcp-server`, ohne gültiges `MCP_SERVER_TOKEN` in der Umgebung bricht er ab): `python -m hoffmann_data` (unter Windows `..\.venv\Scripts\python.exe -m hoffmann_data`)
-- Tests des Datenservice (ohne Datenbank und Netzwerk): `python -m pytest tests/mcp_server`
+- Datenservice starten (aus dem Ordner `mcp-server`, ohne gültiges `MCP_SERVER_TOKEN` oder `MCP_SERVER_DATABASE_URL` in der Umgebung bricht er ab, ebenso wenn die Startprüfung der Datenbankrolle scheitert): `python -m hoffmann_data` (unter Windows `..\.venv\Scripts\python.exe -m hoffmann_data`)
+- Tests des Datenservice (die mit Datenbank brauchen `TEST_DATABASE_URL`, nur localhost; ohne sie werden sie lokal übersprungen, in GitHub Actions ist das ein Fehler): `python -m pytest tests/mcp_server`
 - Python-Format prüfen: `python -m ruff format --check .`
 - Weitere Befehle erst eintragen, wenn sie existieren und ausprobiert wurden.
   Ziel: lokale Einrichtung mit höchstens fünf Befehlen.

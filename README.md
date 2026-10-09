@@ -27,8 +27,20 @@ Voraussetzung: Python 3.13 und `pip install -r requirements-dev.txt`.
 `python -m db.seed --nur-rabatte` erzeugt nur `data/richtlinien/rabatte.md` und braucht keine Datenbank.
 Einzelheiten: [Datenmodell, Abschnitt 4](docs/DATENMODELL.md).
 
+## Datenservice
+Der Datenservice „hoffmann-data“ (`mcp-server/`) liefert dem Agenten Katalog und CRM, nur lesend. Voraussetzung ist eine befüllte Datenbank.
+
+1. Das Skript `db/roles/data_service_ro.sql` in der Datenbank ausführen. Es legt die Nur-Lese-Rolle `data_service_ro` an, ohne Passwort. Nach jedem `python -m db.seed` muss es erneut ausgeführt werden.
+2. Das Passwort der Rolle getrennt setzen: `ALTER ROLE data_service_ro PASSWORD '<aus dem Passwortmanager>';`
+3. Die Umgebungsvariablen `MCP_SERVER_TOKEN` und `MCP_SERVER_DATABASE_URL` setzen. Die Werte gehören nie ins Repository, die Namen stehen in `.env.example`.
+4. `pip install -r mcp-server/requirements.txt`, dann aus dem Ordner `mcp-server` `python -m hoffmann_data` (unter Windows `..\.venv\Scripts\python.exe -m hoffmann_data`).
+
+Beim Start prüft der Datenservice die Rolle. Darf sie mehr als lesen, endet der Start mit Exit-Code 1, und auf stderr stehen nur die Kurzbezeichnungen der gescheiterten Prüfungen (zum Beispiel `schreibrecht:INSERT:products`), nie URL oder Zugangsdaten. Einzelheiten: [mcp-server/README.md](mcp-server/README.md).
+
 ## Dokumente
 - [Projektauftrag](docs/AUFTRAG.md)
+- [Datenservice](mcp-server/README.md)
+- [Architekturentscheidungen](docs/adr/)
 - [Entwicklungsprotokoll](AGENT_LOG.md)
 - [Änderungen](CHANGELOG.md)
 
