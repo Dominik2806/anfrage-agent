@@ -4,9 +4,10 @@ Der Datenservice darf nur lesen (Auftrag 5.1). Die Datenbankrolle setzt das durc
 zusätzlich den Quelltext ab, damit auch ein Fehler im Code nicht zu Schreib-SQL oder zu SQL-Injektion führt:
 
 1. In den Zeichenketten des Pakets (Docstrings ausgenommen) steht kein Schlüsselwort einer Schreib- oder
-   Strukturanweisung. Einzige Ausnahme: In db.py dürfen die Rechtenamen INSERT, UPDATE, DELETE und TRUNCATE
-   als eigene Zeichenketten stehen (Startprüfung der Rolle mit has_table_privilege, Etappe 7); sie dürfen
-   nicht Teil eines SQL-Satzes sein.
+   Strukturanweisung. Einzige Ausnahme: In db.py dürfen die Rechtenamen INSERT, UPDATE, DELETE, TRUNCATE
+   und CREATE sowie die Kurzbezeichnung create-im-schema der Rollenprüfung als eigene, exakt gleiche
+   Zeichenketten stehen (Startprüfung der Rolle mit has_table_privilege und has_schema_privilege, Etappe 7);
+   sie dürfen nicht Teil eines SQL-Satzes sein.
 2. Wert und Eingabe werden nie in SQL-Text eingesetzt: keine f-Strings, kein %-Operator, kein Plus und kein
    .format auf SQL-Zeichenketten. Erlaubt ist nur psycopg.sql.SQL("...").format(sql.Identifier("fester Name")).
    Werte gehen immer als Parameter an die Abfrage.
@@ -28,7 +29,11 @@ DB_MODULE = PACKAGE / "db.py"
 FORBIDDEN = re.compile(
     r"\b(INSERT|UPDATE|DELETE|DROP|ALTER|TRUNCATE|GRANT|COPY|CREATE|MERGE)\b", re.IGNORECASE
 )
-PRIVILEGE_NAMES = frozenset({"INSERT", "UPDATE", "DELETE", "TRUNCATE"})
+# Die Rechtenamen der Rollenprüfung und die Kurzbezeichnung create-im-schema: nur in db.py, nur als exakt
+# gleiche Zeichenkette (Parameter der Abfragen bzw. Text des Fehlers), nie in einem SQL-Satz
+PRIVILEGE_NAMES = frozenset(
+    {"INSERT", "UPDATE", "DELETE", "TRUNCATE", "CREATE", "create-im-schema"}
+)
 # Eine Zeichenkette gilt als SQL, wenn sie eine Abfrage oder eine Sitzungseinstellung enthält
 SQL_LIKE = re.compile(r"\b(SELECT|SET\s+LOCAL)\b", re.IGNORECASE)
 
@@ -201,11 +206,17 @@ def test_checker_ignores_harmless_text_and_docstrings(snippet: str) -> None:
 
 
 def test_checker_allows_privilege_names_only_when_asked() -> None:
-    snippet = 'PRIVILEGES = ("INSERT", "UPDATE", "DELETE", "TRUNCATE")'
+    snippet = 'PRIVILEGES = ("INSERT", "UPDATE", "DELETE", "TRUNCATE", "CREATE")'
     assert forbidden_words(snippet)
     assert forbidden_words(snippet, allow_privilege_names=True) == []
+    label = 'CREATE_FAILURE = "create-im-schema"'
+    assert forbidden_words(label)
+    assert forbidden_words(label, allow_privilege_names=True) == []
     in_sentence = 'q = "INSERT INTO products DEFAULT VALUES"'
     assert forbidden_words(in_sentence, allow_privilege_names=True)
+    # Nur die exakt gleiche Zeichenkette ist erlaubt, nie ein Satz oder eine Anweisung damit
+    assert forbidden_words('q = "CREATE TABLE t (a int)"', allow_privilege_names=True)
+    assert forbidden_words('label = "create-im-schema extra"', allow_privilege_names=True)
 
 
 @pytest.mark.parametrize(

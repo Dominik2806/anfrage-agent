@@ -34,7 +34,7 @@ import re
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Any
+from typing import Any, Self
 
 import psycopg
 import pytest
@@ -106,7 +106,7 @@ class _RecordingCursor:
         self._inner = inner
         self._statements = statements
 
-    def __enter__(self) -> "_RecordingCursor":
+    def __enter__(self) -> Self:
         return self
 
     def __exit__(self, *exc_info: object) -> None:
@@ -520,7 +520,6 @@ def _control_main(
 ) -> tuple[list[str], list[Any], list[dict[str, Any]]]:
     """Ersetzt die Prüfung und uvicorn.run; gibt Ereignisse, Prüfungsaufrufe und uvicorn-Aufrufe zurück."""
     import uvicorn
-
     from hoffmann_data import db
 
     events: list[str] = []
@@ -659,7 +658,6 @@ def test_unreachable_database_stops_the_start_with_a_fixed_message(
     """Echte Prüfung, nur uvicorn.run ist ersetzt. Plattformunabhängig: Linux OperationalError, Windows
     ConnectionTimeout nach etwa 5 Sekunden; der Test nennt keine einzelne Klasse."""
     import uvicorn
-
     from hoffmann_data.__main__ import main
 
     run_calls: list[dict[str, Any]] = []
