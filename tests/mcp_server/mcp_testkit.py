@@ -89,6 +89,45 @@ def parse_rpc_body(response: Any) -> dict[str, Any]:
     return response.json()
 
 
+# Marker für "Eingabewert darf nirgends zurückkommen" (Antwort, Log, stdout, stderr)
+SECRET_MARKER = "GEHEIM-4711"
+
+
+def error_text(result: dict[str, Any]) -> str:
+    """Text eines Werkzeugfehlers (`result` von tools/call mit isError). Bricht ab, wenn es kein Fehler ist."""
+    assert result.get("isError") is True, f"kein Fehler, sondern: {result!r}"
+    return " ".join(c.get("text", "") for c in result["content"])
+
+
+def structured(result: dict[str, Any]) -> dict[str, Any]:
+    """`structuredContent` eines erfolgreichen Werkzeugaufrufs. Bricht mit dem Fehlertext ab, wenn isError."""
+    assert result.get("isError") is not True, f"Werkzeugfehler: {error_text(result)}"
+    content = result.get("structuredContent")
+    assert isinstance(content, dict), f"kein structuredContent: {result!r}"
+    return content
+
+
+def all_keys(value: Any) -> set[str]:
+    """Alle Schlüssel aller verschachtelten Objekte (Listen werden durchlaufen)."""
+    if isinstance(value, dict):
+        keys = {str(k) for k in value}
+        for item in value.values():
+            keys |= all_keys(item)
+        return keys
+    if isinstance(value, list):
+        keys: set[str] = set()
+        for item in value:
+            keys |= all_keys(item)
+        return keys
+    return set()
+
+
+def assert_no_internal_ids(value: Any) -> None:
+    """Keine Ausgabe nennt interne IDs: kein Schlüssel `id` und keiner, der auf `_id` endet."""
+    found = sorted(k for k in all_keys(value) if k == "id" or k.endswith("_id"))
+    assert not found, f"interne IDs in der Ausgabe: {found}"
+
+
 # Datenbank-URLs für die Tests von dburl.py und für den Paritätstest gegen db/seed/guard.py (F07).
 # Alle Zugangswerte enthalten "geheim", damit Tests prüfen können, dass keine Meldung sie nennt.
 DB_SECRETS = ("geheimuser", "geheimpasswort", "geheimhost", "geheimdb")

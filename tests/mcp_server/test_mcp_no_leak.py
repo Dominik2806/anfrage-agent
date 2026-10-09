@@ -1,5 +1,10 @@
-"""Tests: Das Token taucht in keiner Meldung auf, und F06 braucht keine Datenbank (F06)."""
+"""Tests: Das Token taucht in keiner Meldung auf, und der Datenbankzugriff bleibt an einer Stelle (F06, F07).
 
+Seit F07 gibt es genau ein Modul mit Datenbanktreiber: hoffmann_data/db.py. Alle anderen Module des Pakets
+bekommen die Verbindung von dort und importieren psycopg nie selbst.
+"""
+
+import ast
 import logging
 import re
 from pathlib import Path
@@ -100,14 +105,87 @@ def test_config_object_does_not_reveal_the_token_in_repr(token: str) -> None:
     assert token not in str(config)
 
 
-def test_package_has_no_database_access() -> None:
-    """F06 kennt keine Datenbank: weder Treiber noch Verbindungsadresse im Paket."""
-    package = Path(MCP_SERVER_DIR) / "hoffmann_data"
-    sources = sorted(package.rglob("*.py"))
+PACKAGE = Path(MCP_SERVER_DIR) / "hoffmann_data"
+DB_MODULE = PACKAGE / "db.py"
+
+
+def _sources() -> list[Path]:
+    sources = sorted(PACKAGE.rglob("*.py"))
     assert sources, "mcp-server/hoffmann_data enthält noch keinen Code"
-    for source in sources:
+    return sources
+
+
+def _parse(source: Path) -> ast.AST:
+    return ast.parse(source.read_text(encoding="utf-8"), filename=str(source))
+
+
+def _imported_modules(tree: ast.AST) -> list[str]:
+    """Namen aller importierten Module (absolut), aus den Importknoten, nicht aus dem Text."""
+    modules: list[str] = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            modules.extend(alias.name for alias in node.names)
+        elif isinstance(node, ast.ImportFrom) and node.level == 0 and node.module:
+            modules.append(node.module)
+    return modules
+
+
+def _is_driver(module: str) -> bool:
+    return module.split(".")[0].startswith("psycopg")
+
+
+def test_only_the_db_module_imports_the_database_driver() -> None:
+    """Der Treiber (psycopg, auch psycopg_pool u. a.) wird nur in db.py importiert."""
+    offenders = [
+        str(source.relative_to(PACKAGE))
+        for source in _sources()
+        if source != DB_MODULE and any(_is_driver(m) for m in _imported_modules(_parse(source)))
+    ]
+    assert not offenders, f"Treiberimport außerhalb von db.py: {offenders}"
+
+
+def test_db_module_imports_psycopg_and_connects_through_it() -> None:
+    """db.py importiert psycopg als Modul und ruft psycopg.connect auf (so greift der Zähltest der Verbindungen)."""
+    assert DB_MODULE.is_file(), "hoffmann_data/db.py fehlt"
+    tree = _parse(DB_MODULE)
+    assert "psycopg" in _imported_modules(tree)
+    plain_import = any(
+        isinstance(node, ast.Import)
+        and any(a.name == "psycopg" and a.asname is None for a in node.names)
+        for node in ast.walk(tree)
+    )
+    assert plain_import, "import psycopg (ohne Alias), damit psycopg.connect im Test ersetzbar ist"
+    connects = [
+        node
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Attribute)
+        and node.func.attr == "connect"
+        and isinstance(node.func.value, ast.Name)
+        and node.func.value.id == "psycopg"
+    ]
+    assert connects, "db.py ruft psycopg.connect nicht auf"
+
+
+def test_package_has_no_dynamic_imports() -> None:
+    """Kein importlib und kein __import__: Der Treiber ließe sich sonst an der Prüfung vorbei laden."""
+    for source in _sources():
+        tree = _parse(source)
+        assert "importlib" not in _imported_modules(tree), source
+        calls = [
+            node
+            for node in ast.walk(tree)
+            if isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Name)
+            and node.func.id == "__import__"
+        ]
+        assert not calls, source
+
+
+def test_package_does_not_use_the_seed_variable_or_an_async_driver() -> None:
+    """Die Variable des Seed-Skripts (DATABASE_URL) und asyncpg bleiben im ganzen Paket verboten."""
+    for source in _sources():
         text = source.read_text(encoding="utf-8")
-        assert "psycopg" not in text, source
         # Verboten ist nur das nackte Wort DATABASE_URL (die Variable des Seed-Skripts). \b trifft weder
         # MCP_SERVER_DATABASE_URL noch DATABASE_URL_VAR, weil der Unterstrich zum Wort gehört.
         assert not re.search(r"\bDATABASE_URL\b", text), source

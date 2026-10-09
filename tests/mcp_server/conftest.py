@@ -16,10 +16,12 @@ Host-Schutz des SDKs mit 421 abgelehnt.
 
 import importlib.util
 import itertools
+import json
 import os
 import secrets
 import uuid
 from collections.abc import Callable, Iterator
+from contextlib import ExitStack, contextmanager
 from typing import Any
 
 import psycopg
@@ -27,6 +29,7 @@ import pytest
 from mcp_testkit import (
     BASE_URL,
     MCP_PATH,
+    PRODUCTS_JSON,
     ROOT,
     RPC_HEADERS,
     parse_rpc_body,
@@ -271,3 +274,128 @@ class Make:
 @pytest.fixture
 def make(conn: psycopg.Connection[Any]) -> Make:
     return Make(conn)
+
+
+# Fixtures für die Werkzeug-Tests (F07). Die Werkzeuge laufen durch die ganze App (Token, Transport, SDK).
+# Als Datenbank dient die Test-Verbindung unter der lesenden Rolle: Die Werkzeuge sehen genau die Rechte
+# und Policies der echten Rolle und die nicht committeten Testdaten der äußeren Transaktion.
+
+ToolCall = Callable[..., dict[str, Any]]
+
+
+class RoDatabase:
+    """Test-Double für hoffmann_data.db.Database: gibt die Test-Verbindung unter der lesenden Rolle heraus.
+
+    Jeder Aufruf läuft in einem Savepoint mit SET LOCAL ROLE. RESET ROLE steht nur am normalen Ende: Bei
+    einer Ausnahme rollt der Savepoint zurück und nimmt SET LOCAL mit. Die Werkzeuge müssen die Zeilenform
+    selbst setzen (kein row_factory der Verbindung voraussetzen).
+    """
+
+    def __init__(self, conn: psycopg.Connection[Any], role: str) -> None:
+        self._conn = conn
+        self._role = role
+
+    @contextmanager
+    def connection(self) -> Iterator[psycopg.Connection[Any]]:
+        with self._conn.transaction():
+            self._conn.execute(sql.SQL("SET LOCAL ROLE {}").format(sql.Identifier(self._role)))
+            yield self._conn
+            self._conn.execute("RESET ROLE")
+
+
+def _tool_caller(client: TestClient, headers: dict[str, str]) -> ToolCall:
+    """Aufrufer für tools/call mit Token: gibt `result` zurück (auch bei isError), Protokollfehler brechen ab."""
+    counter = iter(range(1, 10_000))
+
+    def _call(name: str, arguments: dict[str, Any] | None = None) -> dict[str, Any]:
+        payload = {
+            "jsonrpc": "2.0",
+            "id": next(counter),
+            "method": "tools/call",
+            "params": {"name": name, "arguments": {} if arguments is None else arguments},
+        }
+        response = client.post(MCP_PATH, json=payload, headers={**RPC_HEADERS, **headers})
+        assert response.status_code == 200, response.text
+        body = parse_rpc_body(response)
+        assert "error" not in body, body
+        return body["result"]
+
+    return _call
+
+
+@pytest.fixture
+def tool_call_for(token: str) -> Iterator[Callable[[Any], ToolCall]]:
+    """Fabrik: baut die App mit der übergebenen Datenbank (auch None) und gibt den Aufrufer zurück."""
+    from hoffmann_data.config import load_config
+    from hoffmann_data.server import create_app
+
+    with ExitStack() as stack:
+
+        def _for(database: Any) -> ToolCall:
+            app = create_app(load_config({"MCP_SERVER_TOKEN": token}), database)
+            client = stack.enter_context(TestClient(app, base_url=BASE_URL))
+            return _tool_caller(client, {"Authorization": f"Bearer {token}"})
+
+        yield _for
+
+
+@pytest.fixture
+def tool_app(conn: psycopg.Connection[Any], ro_role: str, token: str) -> Any:
+    """Die App mit der Test-Verbindung unter der lesenden Rolle als Datenbank."""
+    from hoffmann_data.config import load_config
+    from hoffmann_data.server import create_app
+
+    return create_app(load_config({"MCP_SERVER_TOKEN": token}), RoDatabase(conn, ro_role))
+
+
+@pytest.fixture
+def tool_call(tool_app: Any, token: str) -> Iterator[ToolCall]:
+    """tools/call über die ganze App mit Token; gibt `result` zurück."""
+    with TestClient(tool_app, base_url=BASE_URL) as client:
+        yield _tool_caller(client, {"Authorization": f"Bearer {token}"})
+
+
+@pytest.fixture
+def catalog(make: Make) -> dict[str, int]:
+    """Lädt den ganzen Katalog (products.json, product_fits.json) in die Test-Transaktion.
+
+    Gibt Artikelnummer -> interne id zurück, damit Tests Zuordnungen anlegen können.
+    """
+    products = json.loads(PRODUCTS_JSON.read_text(encoding="utf-8"))
+    ids = {p["article_number"]: make._insert("products", {}, p) for p in products}
+    fits = json.loads((PRODUCTS_JSON.parent / "product_fits.json").read_text(encoding="utf-8"))
+    for fit in fits:
+        make.fit(ids[fit["part"]], ids[fit["fits"]], note=fit["note"])
+    return ids
+
+
+class ConnectLog:
+    """Protokoll der psycopg.connect-Aufrufe: Zahl der Versuche und die geöffneten Verbindungen."""
+
+    def __init__(self) -> None:
+        self.calls = 0
+        self.opened: list[psycopg.Connection[Any]] = []
+
+
+@pytest.fixture
+def connect_log(monkeypatch: pytest.MonkeyPatch) -> ConnectLog:
+    """Zählt jeden Aufruf von psycopg.connect und reicht ihn unverändert durch."""
+    log = ConnectLog()
+    real_connect = psycopg.connect
+
+    def counting(*args: Any, **kwargs: Any) -> psycopg.Connection[Any]:
+        log.calls += 1
+        connection = real_connect(*args, **kwargs)
+        log.opened.append(connection)
+        return connection
+
+    monkeypatch.setattr(psycopg, "connect", counting)
+    return log
+
+
+@pytest.fixture
+def real_database(db_url: str, db_schema: str) -> Any:
+    """Die echte Database auf dem Test-Server, mit search_path im Testschema (leere Tabellen)."""
+    from hoffmann_data.db import Database
+
+    return Database(db_url, options=f"-csearch_path={db_schema}")
