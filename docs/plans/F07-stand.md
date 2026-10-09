@@ -13,7 +13,8 @@ ADR 0004, CHANGELOG und AGENT_LOG. Diese Datei enthält keine Zugangsdaten und k
 - Branch: `feat/f07-read-tools`.
 - Commits: `73e4d1b` (Etappe 1 rot), `86b9204` (Etappe 1 grün), `c293e51` (Etappe 2 rot), `5d5d47e`
   (Etappe 2 grün), `dd5f834` (Etappe 3 rot), `1f69995` und `4281137` (Etappe 3 Nachbesserungen), `82b4bfc`
-  (Etappe 4 grün), `0636258` (Etappe 5 grün).
+  (Etappe 4 grün), `0636258` (Etappe 5 grün), `3e80c5d` (Etappe 6 grün), `4d1f8b5` (Etappe 7 rot), `dfe3d0e`
+  (Etappe 7: Test-Regel für `CREATE` und Lint) und `ab6f85d` (Etappe 7 grün).
 - Der ausführliche Plan der ersten Sitzung lag außerhalb des Repositories und kann in einer neuen Sitzung
   fehlen; diese Datei ist deshalb in sich vollständig.
 
@@ -27,69 +28,72 @@ ADR 0004, CHANGELOG und AGENT_LOG. Diese Datei enthält keine Zugangsdaten und k
 | 3 | Alle Tests der drei Werkzeuge und der Anpassungen schreiben (nur Tests), Rot-Lauf, roter Stand als `test:`-Commit pushen | Rot-Protokoll je Datei mit Grund; jeder Pflichtfall hat mindestens einen Test | erledigt (`dd5f834` rot, `1f69995` und `4281137` Nachbesserungen) |
 | 4 | `db.py`, `limits.py`, `catalog.py` mit `search_products`, Verdrahtung in `server.py`, `pydantic` gepinnt | Tests zu Suche, Limits und Verbindung grün; Synonym-Ergebnis berichtet | erledigt (`82b4bfc`; 723 bestanden, 147 rot, alle zu `get_product` und `find_customer`; `ruff format` und `ruff check mcp-server` sauber) |
 | 5 | `get_product` | `test_get_product.py` und die `get_product`-Fälle in `test_mcp_interfaces.py` und `test_db_connection.py` grün | erledigt (`0636258`; 777 bestanden, 93 rot, alle zu `find_customer`: 88 + 4 + 1; `ruff format` und `ruff check mcp-server` sauber) |
-| 6 | `find_customer` in `crm.py` | Alle neuen und alten MCP-Tests grün, fünf Platzhalter unverändert | **nächste Etappe** |
-| 7 | Startprüfung der Rolle, nur lesend (`verify_read_only_role` in `db.py`, Aufruf in `main()`) | Tests grün, keine Schreib-SQL in der Prüfung, Suite ohne Datenbank bleibt grün | offen (optional zurückstellbar, siehe h) |
+| 6 | `find_customer` in `crm.py` | Alle neuen und alten MCP-Tests grün, fünf Platzhalter unverändert | erledigt (`3e80c5d`; 870 bestanden, 0 rot; ruff sauber) |
+| 7 | Startprüfung der Rolle, nur lesend (`verify_read_only_role` in `db.py`, Aufruf in `main()`) | Tests grün, keine Schreib-SQL in der Prüfung, Suite ohne Datenbank bleibt grün | erledigt (`4d1f8b5` Tests rot, `dfe3d0e` Test-Regel und Lint, `ab6f85d` grün; alle Tests grün, siehe c) |
 | 8 | CI-Diff (Mensch), ADR 0004, README, CHANGELOG, `mcp-server/CLAUDE.md`, `mcp-server/README.md`, DATENMODELL, `.env.example`, Kommentare in `db/schema.sql`; `code-reviewer` und `security-reviewer`; diese Datei entfernen; Pull Request | Pipeline grün (`gh pr checks`), Reviewer-Funde bearbeitet, CHANGELOG- und AGENT_LOG-Eintrag vorhanden | offen |
 | 9 | Mensch: Rolle in Supabase einspielen, Passwort setzen, `MCP_SERVER_DATABASE_URL` setzen, Probeaufruf | `search_products "Gurtband"` liefert Daten, Startprüfung besteht, Schreibversuch über die Rolle scheitert | offen |
 
-## c) Nächster Schritt: Etappe 6, `find_customer`
+## c) Nächster Schritt: Etappe 8 (Doku, Reviews, Pull Request)
 
-Die Tests liegen (`tests/mcp_server/test_find_customer.py`, dazu die `find_customer`-Fälle in
-`test_mcp_interfaces.py` und `test_db_connection.py`). Sie werden **nicht geändert**, außer ein Test ist
-belegbar falsch; dann melden, bevor etwas geändert wird. Ablauf: Plan, Edits einzeln zur Freigabe (I), grüner
-Lauf des Menschen (G). Ziel: alle Tests in `tests/mcp_server` grün. Stand nach Etappe 5: 777 bestanden,
-93 rot, alle zu `find_customer` (88 in `test_find_customer.py`, 4 in `test_mcp_interfaces.py`, 1 in
-`test_db_connection.py`).
+Etappe 1 bis 7 sind erledigt. Alle drei Lese-Werkzeuge und die Startprüfung der Rolle sind umgesetzt, alle Tests
+in `tests/mcp_server` sind grün (Lauf des Menschen). Offen sind Etappe 8 und 9 (Tabelle in b):
+- **Etappe 8:** CI-Diff für den Job `mcp-tests` (Claude liefert ihn als Text, der Mensch wendet ihn an, siehe h),
+  ADR 0004 (Lehren aus Abschnitt i), README, CHANGELOG, `mcp-server/CLAUDE.md` (Aufbau um `limits.py`, `db.py`,
+  `catalog.py` und `crm.py` ergänzen; die Regel „Im Paket kein `psycopg`“ gilt nur noch außerhalb von `db.py`),
+  `mcp-server/README.md`, DATENMODELL, `.env.example`, Kommentare in `db/schema.sql`; `code-reviewer` und
+  `security-reviewer` mit dem Diff; AGENT_LOG-Eintrag; diese Datei entfernen; Pull Request erst bei grüner Pipeline.
+- **Etappe 9:** Schritte des Menschen in Supabase (siehe h).
+Vor jeder Etappe zuerst der Plan, dann Edits einzeln zur Freigabe, dann der Lauf des Menschen.
 
-Umfang: Neues Modul `mcp-server/hoffmann_data/crm.py` mit `AMBIGUOUS_MESSAGE = "Mehrdeutiger Treffer."`,
-`pick_unique(rows)` und `find_customer(database, query)`. In `server.py` wird `find_customer` ein echtes
-Werkzeug (`Annotated[Any, WithJsonSchema(...)]`, Rückgabetyp als `TypedDict`). `instructions`-Text und
-Docstrings werden angepasst. Danach bleiben nur `create_lead`, `log_activity`, beide Resources und der Prompt
-Platzhalter.
+### Startprüfung der Rolle (Etappe 7, umgesetzt)
+Tests: `tests/mcp_server/test_role_check.py` (66 Fälle); ein bestehender `main()`-Test in
+`test_mcp_config_database.py` ersetzt die Prüfung per `monkeypatch` (`raising=False`).
+- `db.verify_read_only_role(database)`: öffnet genau einmal `database.connection()`, führt nur lesende
+  Abfragen aus (zwei feste Konstanten `ROLE_SQL` und `TABLES_SQL`, beide beginnen mit `SELECT`), liest die Rolle
+  `current_user` (nicht `session_user`) und gibt `None` zurück oder wirft `RoleCheckError`.
+- `db.RoleCheckError(failed)`: Attribut `failed` (Tupel der Kurzbezeichnungen); der Text besteht nur aus
+  „Prüfung der Datenbankrolle fehlgeschlagen: “ und den Kurzbezeichnungen, nie Rollenname, Host, Benutzer,
+  Datenbankname, URL oder Passwort; kein `__cause__`.
+- Kurzbezeichnungen in fester Reihenfolge (Tabellen: `products`, `product_fits`, `customers`, `contacts`,
+  `activities`): 1 `rolle-ist-superuser`; 2 `rolle-umgeht-rls`; 3 `schreibrecht:<RECHT>:<tabelle>` für INSERT,
+  UPDATE, DELETE, TRUNCATE (INSERT und UPDATE auch als Spaltenrecht über `has_any_column_privilege`); 4
+  `kein-select:<tabelle>`; 5 `create-im-schema` (`has_schema_privilege` auf `current_schema()`); 6
+  `tabelle-fehlt:<tabelle>` (nur diese Kurzbezeichnung, nicht zusätzlich 3 oder 4; Auflösung mit `to_regclass`
+  über den `search_path`). Dazu `datenbankfehler`, wenn Verbindung oder Abfrage scheitern: genau ein WARNING von
+  `hoffmann_data.db` mit Klasse und SQLSTATE, ohne Text und ohne Traceback.
+- `main()` ruft `db.verify_read_only_role(db.Database(config.database_url))` **über das Modul `db`** auf (damit
+  `monkeypatch` greift), nach `load_config(require_database=True)` und vor `uvicorn.run`. Bei `RoleCheckError`:
+  der Text auf stderr, Exit-Code 1, kein Start. Ohne URL bleibt der bisherige Abbruch (Exit 1), die Prüfung wird
+  dann nicht aufgerufen. Es gibt keinen Schalter und keine zusätzliche Umgebungsvariable (AST-Test).
 
-Verhalten (Quelle: `test_find_customer.py`, Modul-Docstring):
-- Eingabe mit `@`: Kontakt über die Adresse (`matched_by` `email`), sonst Kunde über die Domain der Adresse
-  (`domain`). Ohne `@`: Firmenname (`company`), sonst, wenn die Eingabe eine Domain ist, Domain (`domain`).
-  Immer exakt, ohne Beachtung der Schreibung; Subdomains, Teilnamen, `%` und `_` treffen nicht.
-- Kein Treffer: `{"customer": null, "matched_by": null}`, kein Fehler. Ungültige Eingabe:
-  `CUSTOMER_QUERY_INVALID`, die Datenbank wird nie erreicht, die Prüfung gewinnt vor `NOT_CONFIGURED`.
-- Bis 20 Kontakte, die letzten 10 Aktivitäten (neueste zuerst); Beträge als Text mit zwei Nachkommastellen
-  oder `null`; `occurred_at` als ISO-Text mit Zeitzone; `article_number` der Aktivität über das Produkt
-  (`null` ohne Produkt); keine internen IDs; kein Feld `ambiguous`.
-- Nur Lesen, Werte nur als benannte Parameter, keine verbotenen Wörter und kein Einsetzen in SQL
-  (`test_package_sql_rules.py`); nur `db.py` importiert `psycopg`.
-
-Ansatz (Plan, noch nicht umgesetzt):
-- Je Weg eine feste Abfrage mit `LIMIT 2` und `pick_unique` (Kontakt über `email`, Kunde über `domain`, Kunde
-  über `lower(company_name)`, Vergleich mit `lower()` in PostgreSQL); Mehrdeutigkeit ist heute durch die
-  UNIQUE-Constraints unmöglich, der Fehler geht unverändert durch `read_connection`.
-- „Sieht wie eine Domain aus“: ASCII-Labels mit Punkten, mindestens ein Punkt, nicht an `.example` gekoppelt.
-  Leerer Lokalteil einer Adresse ergibt keinen Treffer.
-- Kontakte: gefundener Kontakt zuerst (bei `email`), dann `last_name`, `first_name`, `email`, `LIMIT 20`.
-  Aktivitäten: `occurred_at DESC, id DESC` (nur zum Sortieren), `LIMIT 10`, `LEFT JOIN products`.
-- `amount_eur` als `f"{value:.2f}"` oder `null`; `occurred_at` nach UTC, `isoformat()`.
-
-### Bereits umgesetzt (Etappe 4 und 5)
+### Bereits umgesetzt (Etappe 4 bis 7)
 - `limits.py`: `check_query`, `check_limit`, `check_article_number`, `check_customer_query` mit festen Meldungen.
 - `db.py`: `Database`, `read_connection`, `fetch_all(connection, query, params)` (liefert Dicts),
-  `NOT_CONFIGURED`, `DATABASE_ERROR`, `ConnectionSource`.
+  `NOT_CONFIGURED`, `DATABASE_ERROR`, `ConnectionSource`; seit Etappe 7 `RoleCheckError`,
+  `verify_read_only_role`, `ROLE_SQL`, `TABLES_SQL`, `CHECKED_TABLES`, `NO_SELECT_FAILURES`.
 - `catalog.py`: `search_products` (`SEARCH_SQL`, `ProductHit`, `SearchResult`) und `get_product`
   (`GET_PRODUCT_SQL`, eine Abfrage mit beiden Richtungen von `product_fits` als JSON-Listen, `LinkedProduct`,
   `ProductDetail`, `ProductResult`, Preis mit `f"{value:.2f}"`).
-- `server.py`: `create_mcp_server(database=None)`, `create_app(config, database=None)`, `search_products` und
-  `get_product` mit `Annotated[Any, WithJsonSchema(...)]`.
+- `crm.py`: `find_customer`, `pick_unique`, `AMBIGUOUS_MESSAGE`; je Weg (E-Mail, Domain, Firma) eine feste Abfrage
+  mit `LIMIT 2` und `pick_unique`, `CONTACTS_SQL` (gefundener Kontakt zuerst, höchstens 20) und `ACTIVITIES_SQL`
+  (neueste zuerst, höchstens 10, `LEFT JOIN products`); `occurred_at` in UTC als ISO-Text, Beträge mit
+  `f"{value:.2f}"`.
+- `server.py`: `create_mcp_server(database=None)`, `create_app(config, database=None)`, `search_products`,
+  `get_product` und `find_customer` mit `Annotated[Any, WithJsonSchema(...)]`. Platzhalter bleiben
+  `create_lead`, `log_activity`, beide Resources und der Prompt.
+- `__main__.py`: Aufruf der Startprüfung (siehe oben).
 
-### Geplante Schnittstellen (die Tests legen sie fest; nur `find_customer` ist noch offen)
+### Schnittstellen der Werkzeuge (alle drei umgesetzt)
 - Ergebnisformen (`structuredContent`):
-  - `search_products` → `{"items": [{article_number, name, category, is_active}], "count": n}` (umgesetzt).
+  - `search_products` → `{"items": [{article_number, name, category, is_active}], "count": n}`.
   - `get_product` → `{"product": {article_number, name, category, description, technical_data,
     list_price, price_unit, lead_time_days, is_active, fits_assemblies: [{article_number, name, note}],
-    compatible_parts: [{article_number, name, note}]} | null}` (umgesetzt).
+    compatible_parts: [{article_number, name, note}]} | null}`.
   - `find_customer` → `{"customer": {company_name, domain, industry, country, status, contacts: [{first_name,
     last_name, email, job_title, language}], recent_activities: [{type, occurred_at, subject, summary,
     amount_eur, created_by, article_number}]} | null, "matched_by": "company"|"email"|"domain"|null}`.
     Kein Feld `ambiguous`.
-- `hoffmann_data.crm.pick_unique(rows)` (Etappe 6): keine Zeile → `None`, eine → diese, mehr als eine →
+- `hoffmann_data.crm.pick_unique(rows)`: keine Zeile → `None`, eine → diese, mehr als eine →
   `ToolError("Mehrdeutiger Treffer.")` (Konstante `AMBIGUOUS_MESSAGE`).
 
 ## d) Verbindliche Entscheidungen
@@ -128,10 +132,12 @@ Ansatz (Plan, noch nicht umgesetzt):
   Datenbankabfrage (`except Exception` mit `noqa: BLE001`, Absicht); ein `ToolError` aus der Eingabeprüfung wird
   nicht verschluckt oder umgeschrieben (ein Test dafür). Bei Datenbankfehlern loggt der Dienst auf WARNING nur
   Fehlerklasse und SQLSTATE, nie den Text, nie Host oder Benutzer.
-- **Startprüfung** (Etappe 7): nur lesende Abfragen (`pg_roles`: `rolsuper`, `rolbypassrls`;
-  `has_table_privilege` für INSERT, UPDATE, DELETE, TRUNCATE auf die fünf Tabellen), kein echter
-  Schreibversuch, **kein Abschalter**; Anpassung nach dem Probelauf in Etappe 9. `test_package_sql_rules.py`
-  erlaubt die Rechtenamen nur in `db.py` und nur als eigenständige Zeichenketten.
+- **Startprüfung** (Etappe 7, umgesetzt): nur lesende Abfragen (`pg_roles`: `rolsuper`, `rolbypassrls`;
+  `has_table_privilege` und `has_any_column_privilege` für INSERT, UPDATE, DELETE, TRUNCATE auf die fünf
+  Tabellen, `has_schema_privilege` für CREATE), kein echter Schreibversuch, **kein Abschalter**; Anpassung nach
+  dem Probelauf in Etappe 9. `test_package_sql_rules.py` erlaubt in `db.py` die Rechtenamen INSERT, UPDATE,
+  DELETE, TRUNCATE, CREATE und die Kurzbezeichnung `create-im-schema` nur als exakt gleiche Zeichenketten.
+  Einzelheiten in c.
 - **Abhängigkeiten** in `mcp-server/requirements.txt`: `psycopg[binary]==3.3.6` und `pydantic==2.13.5`
   (explizit gepinnt, weil `server.py` `WithJsonSchema` direkt importiert); `pydantic_core` kommt mit pydantic,
   `typing_extensions` wird nicht verwendet. Nur `db.py` darf `psycopg` importieren.
@@ -178,8 +184,9 @@ Ansatz (Plan, noch nicht umgesetzt):
   Review fand elf fehlende Fälle).
 - Ein Test, der vor der Implementierung grün ist, ist verdächtig (der repr-Test der Config lief leer durch;
   seither prüft er zuerst `database_url`).
-- Die `main()`-Tests brauchen in Etappe 7 einen Monkeypatch der Startprüfung, sonst verbindet `main()` mit
-  der Datenbank.
+- Die `main()`-Tests mit gültiger URL brauchen einen Monkeypatch der Startprüfung, sonst verbindet `main()` mit
+  der Datenbank (umgesetzt in Etappe 7 für `test_start_with_valid_database_url_serves_once`, mit
+  `raising=False`).
 - Der Format-Hook formatiert Dateien nach dem Edit um; bei dem nächsten Edit in einer geänderten Region
   zuerst lesen.
 - `.github/` und `.claude/` ändert nur der Mensch (CI-Diff liefert Claude als Text).
@@ -188,7 +195,7 @@ Ansatz (Plan, noch nicht umgesetzt):
 
 ## h) Offen für später
 
-- Etappe 7 (Startprüfung) kann zurückgestellt und als Issue geführt werden.
+- Etappe 7 (Startprüfung) ist umgesetzt; offen bleibt nur die Anpassung nach dem Probestart in Etappe 9.
 - Issue-Text „Seed soll Rollen-Skript anwenden“ für den Menschen (Etappe 8): `DROP TABLE` löscht Rechte und
   Policies, aktueller Workaround (Skript nach jedem Seed erneut ausführen), Vorschlag, betroffene Dateien
   `db/seed/writer.py` und `db/roles/data_service_ro.sql`. Claude legt kein Issue an.
@@ -205,7 +212,7 @@ Ansatz (Plan, noch nicht umgesetzt):
 - F08: Freigabe-Mechanismus für `create_lead` (technisch, nicht nur Beschreibungstext), getrennte Token für
   Lesen und Schreiben, Prüfungen 2 und 3 aus DATENMODELL §5 auch in den Schreib-Werkzeugen.
 
-## i) Gelernte Punkte für ADR 0004 und den Bericht (Etappe 3 bis 5)
+## i) Gelernte Punkte für ADR 0004 und den Bericht (Etappe 3 bis 7)
 
 - **Abhängigkeiten:** `pydantic==2.13.5` ist explizit gepinnt; kein `typing_extensions`, Ergebnistypen sind
   `typing.TypedDict` (Python 3.13).
@@ -234,3 +241,25 @@ Ansatz (Plan, noch nicht umgesetzt):
   ausgelaufen sein können (Status mit `get_product` prüfen, Notiz beachten). Die Verweise haben bewusst kein
   `is_active`, weil `LINK_KEYS` im Test `{article_number, name, note}` ist. Offener Punkt: `is_active` in die
   Verweise aufnehmen; das braucht eine Testanpassung durch den Menschen (siehe h).
+- **Paketregel und `CREATE` (Etappe 7):** `test_package_sql_rules.py` erlaubte in `db.py` nur die exakten
+  Zeichenketten INSERT, UPDATE, DELETE und TRUNCATE. Die Startprüfung braucht zusätzlich `CREATE` (Rechtename für
+  `has_schema_privilege`) und die Kurzbezeichnung `create-im-schema`; beide stehen jetzt als exakte Ausnahme für
+  `db.py` in der Regel (Commit `dfe3d0e`). Die Regel bleibt sonst unverändert: kein Wort in SQL-Sätzen, keine
+  Schreib-SQL.
+- **`SQL_LIKE`-Heuristik:** Die Regel hält jede Zeichenkette mit dem Wort `select` für SQL, also auch den festen
+  Teil `kein-select:` in `f"kein-select:{...}"`, und meldet den f-String. Deshalb stehen die Kurzbezeichnungen
+  dafür als feste Literale in `NO_SELECT_FAILURES` (Tabellenname → Kurzbezeichnung), keine Zeichenkette mit
+  `select` wird zusammengesetzt.
+- **Rechtenamen nur als Parameter:** INSERT, UPDATE, DELETE, TRUNCATE, SELECT und CREATE stehen in `db.py` als
+  eigene Zeichenketten und gehen nur als Parameter an die Abfragen (`%(priv_insert)s::text` usw.), nie im
+  SQL-Text. Auch Parameternamen und Aliase vermeiden verbotene Wörter als eigenes Wort (`priv_create`,
+  `can_update`; der Unterstrich gehört zum Wort).
+- **Superuser nötig für zwei Testgruppen:** Die Fälle für den Superuser und für `BYPASSRLS` brauchen einen
+  Superuser als Testbenutzer (`BYPASSRLS` vergeben darf nur ein Superuser). Lokal werden sie übersprungen, in
+  GitHub Actions sind sie ein Fehler (der Dienstbenutzer `postgres` ist dort Superuser).
+- **Einmaliger `DeadlockDetected`:** Im ersten Gesamtlauf nach Etappe 7 trat einmal ein `DeadlockDetected` in
+  `test_role_script.py` auf; er war danach nicht mehr reproduzierbar. Ursache nicht geklärt. Bei Wiederholung
+  die beteiligten Anweisungen aus dem Serverlog der Test-Datenbank festhalten (SQLSTATE 40P01).
+- **Für Etappe 9 (Supabase-Probestart):** Bei PostgreSQL bis Version 14 hat PUBLIC das Recht `CREATE` auf dem
+  Schema `public`. Dann könnte `create-im-schema` den Start verhindern, obwohl die Rolle selbst nichts erhalten
+  hat. Der Probestart zeigt es; über die Abhilfe entscheidet der Mensch (nicht die Prüfung lockern).
