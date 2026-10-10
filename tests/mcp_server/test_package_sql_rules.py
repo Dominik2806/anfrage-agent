@@ -1,13 +1,16 @@
-"""Regeln für SQL im Paket hoffmann_data (F07): nur Lesen, nie Eingabe im SQL-Text.
+"""Regeln für SQL im Paket hoffmann_data (F07, F08): Lesen, eng begrenztes Schreiben, nie Eingabe im SQL-Text.
 
-Der Datenservice darf nur lesen (Auftrag 5.1). Die Datenbankrolle setzt das durch; diese Tests sichern
-zusätzlich den Quelltext ab, damit auch ein Fehler im Code nicht zu Schreib-SQL oder zu SQL-Injektion führt:
+Der Datenservice darf lesen sowie Leads und Aktivitäten anlegen, nie ändern oder löschen (Auftrag 5.1,
+ADR 0005). Die Datenbankrollen setzen das durch; diese Tests sichern zusätzlich den Quelltext ab, damit
+auch ein Fehler im Code nicht zu unerlaubtem Schreib-SQL oder zu SQL-Injektion führt:
 
 1. In den Zeichenketten des Pakets (Docstrings ausgenommen) steht kein Schlüsselwort einer Schreib- oder
-   Strukturanweisung. Einzige Ausnahme: In db.py dürfen die Rechtenamen INSERT, UPDATE, DELETE, TRUNCATE
-   und CREATE sowie die Kurzbezeichnung create-im-schema der Rollenprüfung als eigene, exakt gleiche
+   Strukturanweisung. Ausnahmen gelten nur in db.py: Die Rechtenamen INSERT, UPDATE, DELETE, TRUNCATE
+   und CREATE sowie die Kurzbezeichnung create-im-schema der Rollenprüfung dürfen als eigene, exakt gleiche
    Zeichenketten stehen (Startprüfung der Rolle mit has_table_privilege und has_schema_privilege, Etappe 7);
-   sie dürfen nicht Teil eines SQL-Satzes sein.
+   sie dürfen nicht Teil eines SQL-Satzes sein. Außerdem darf eine Zeichenkette mit INSERT INTO auf
+   customers, contacts oder activities beginnen (Schreibweg, ADR 0005); alles danach wird weiter geprüft,
+   UPDATE, DELETE und ein zweites INSERT bleiben verboten. In jedem anderen Modul ist INSERT verboten.
 2. Wert und Eingabe werden nie in SQL-Text eingesetzt: keine f-Strings, kein %-Operator, kein Plus und kein
    .format auf SQL-Zeichenketten. Erlaubt ist nur psycopg.sql.SQL("...").format(sql.Identifier("fester Name")).
    Werte gehen immer als Parameter an die Abfrage.
@@ -34,8 +37,14 @@ FORBIDDEN = re.compile(
 PRIVILEGE_NAMES = frozenset(
     {"INSERT", "UPDATE", "DELETE", "TRUNCATE", "CREATE", "create-im-schema"}
 )
-# Eine Zeichenkette gilt als SQL, wenn sie eine Abfrage oder eine Sitzungseinstellung enthält
-SQL_LIKE = re.compile(r"\b(SELECT|SET\s+LOCAL)\b", re.IGNORECASE)
+# Eine Zeichenkette gilt als SQL, wenn sie eine Abfrage, ein INSERT INTO oder eine Sitzungseinstellung
+# enthält. Das einzelne Wort INSERT (der Rechtename) ist kein SQL.
+SQL_LIKE = re.compile(r"\b(SELECT|SET\s+LOCAL|INSERT\s+INTO)\b", re.IGNORECASE)
+# Nur in db.py erlaubt: Der Anfang einer Zeichenkette "INSERT INTO <Tabelle>" mit einer der drei Tabellen
+# des Schreibwegs. Das Muster wird auf jede Zeichenkette einzeln angewendet und entfernt nur diesen Anfang.
+ALLOWED_INSERT_PREFIX = re.compile(
+    r"^\s*INSERT\s+INTO\s+(customers|contacts|activities)(?=[\s(]|$)", re.IGNORECASE
+)
 
 
 def _docstring_ids(tree: ast.AST) -> set[int]:
@@ -64,13 +73,21 @@ def string_constants(tree: ast.AST) -> list[str]:
     ]
 
 
-def forbidden_words(source: str, *, allow_privilege_names: bool = False) -> list[str]:
-    """Schlüsselwörter von Schreib- und Strukturanweisungen in den Zeichenketten des Quelltexts."""
+def forbidden_words(
+    source: str, *, allow_privilege_names: bool = False, allow_insert_into: bool = False
+) -> list[str]:
+    """Schlüsselwörter von Schreib- und Strukturanweisungen in den Zeichenketten des Quelltexts.
+
+    allow_privilege_names: Rechtenamen als exakt gleiche Zeichenkette sind erlaubt (nur db.py).
+    allow_insert_into: Der Anfang "INSERT INTO <customers|contacts|activities>" einer Zeichenkette zählt
+    nicht (nur db.py); der Rest der Zeichenkette wird weiter geprüft.
+    """
     found: list[str] = []
     for text in string_constants(ast.parse(source)):
         if allow_privilege_names and text in PRIVILEGE_NAMES:
             continue
-        found.extend(match.group(0).upper() for match in FORBIDDEN.finditer(text))
+        checked = ALLOWED_INSERT_PREFIX.sub("", text, count=1) if allow_insert_into else text
+        found.extend(match.group(0).upper() for match in FORBIDDEN.finditer(checked))
     return found
 
 
@@ -259,6 +276,91 @@ def test_checker_accepts_parameters_and_fixed_identifiers(snippet: str) -> None:
     assert unsafe_formatting(snippet) == [], snippet
 
 
+@pytest.mark.parametrize("table", ["customers", "contacts", "activities"])
+def test_checker_allows_insert_into_the_three_tables_only_when_asked(table: str) -> None:
+    snippet = f'q = "INSERT INTO {table} (a) VALUES (%(a)s) RETURNING id"'
+    assert forbidden_words(snippet) == ["INSERT"]
+    assert forbidden_words(snippet, allow_privilege_names=True) == ["INSERT"]
+    assert forbidden_words(snippet, allow_insert_into=True) == []
+
+
+def test_checker_allows_insert_into_with_leading_whitespace_and_any_case() -> None:
+    snippet = 'q = """\n    insert into Customers (a)\n    VALUES (%(a)s)\n"""'
+    assert forbidden_words(snippet, allow_insert_into=True) == []
+
+
+@pytest.mark.parametrize(
+    "table",
+    ["products", "product_fits", "discount_rules", "customers_old", "public.customers"],
+)
+def test_checker_rejects_insert_into_other_tables_even_when_allowed(table: str) -> None:
+    snippet = f'q = "INSERT INTO {table} (a) VALUES (%(a)s)"'
+    assert forbidden_words(snippet, allow_insert_into=True) == ["INSERT"]
+
+
+def test_checker_rejects_a_quoted_table_name_after_insert_into() -> None:
+    snippet = 'q = "INSERT INTO \\"customers\\" (a) VALUES (1)"'
+    assert forbidden_words(snippet, allow_insert_into=True) == ["INSERT"]
+
+
+@pytest.mark.parametrize(
+    ("snippet", "expected"),
+    [
+        ('q = "INSERT INTO customers (a) VALUES (1); DELETE FROM customers"', ["DELETE"]),
+        (
+            'q = "INSERT INTO customers (a) VALUES (1) ON CONFLICT (a) DO UPDATE SET a = 2"',
+            ["UPDATE"],
+        ),
+        ('q = "INSERT INTO customers (a) VALUES (1); UPDATE customers SET a = 2"', ["UPDATE"]),
+        ('q = "INSERT INTO customers (a) VALUES (1); DROP TABLE customers"', ["DROP"]),
+        (
+            'q = "INSERT INTO customers (a) VALUES (1); INSERT INTO contacts (a) VALUES (1)"',
+            ["INSERT"],
+        ),
+        ('q = "WITH x AS (SELECT 1) INSERT INTO customers (a) VALUES (1)"', ["INSERT"]),
+    ],
+)
+def test_checker_still_finds_other_write_keywords_next_to_an_allowed_insert(
+    snippet: str, expected: list[str]
+) -> None:
+    assert forbidden_words(snippet, allow_insert_into=True) == expected
+
+
+@pytest.mark.parametrize(
+    "snippet",
+    [
+        "q = f\"INSERT INTO customers (company_name) VALUES ('{name}')\"",
+        'q = f"INSERT INTO {table} (company_name) VALUES (%(name)s)"',
+        "q = \"INSERT INTO customers (company_name) VALUES ('%s')\" % name",
+        'q = "INSERT INTO customers (company_name) VALUES (\'" + name + "\')"',
+        "q = \"INSERT INTO customers (company_name) VALUES ('{}')\".format(name)",
+        'Q = "INSERT INTO customers (company_name) VALUES (%(name)s)"\nq = Q % name',
+        'Q = "INSERT INTO customers (company_name) VALUES (%(name)s)"\nq = f"{Q} RETURNING {column}"',
+    ],
+)
+def test_checker_detects_values_put_into_insert_text(snippet: str) -> None:
+    assert unsafe_formatting(snippet), snippet
+
+
+def test_checker_accepts_insert_text_with_named_parameters() -> None:
+    snippet = (
+        'q = "INSERT INTO customers (company_name) VALUES (%(name)s) RETURNING id"\n'
+        'cur.execute(q, {"name": name})'
+    )
+    assert unsafe_formatting(snippet) == []
+
+
+def test_privilege_name_insert_is_not_sql_text_but_select_is() -> None:
+    """Das Wort INSERT (Rechtename) darf in einem f-String stehen, die Konstante "SELECT" nicht.
+
+    Hinweis für db.py: Wer SELECT_RIGHT in einen f-String einsetzt, wird als SQL-Text erkannt.
+    """
+    insert_right = 'INSERT_RIGHT = "INSERT"\nq = f"fremdrecht:{INSERT_RIGHT}"'
+    select_right = 'SELECT_RIGHT = "SELECT"\nq = f"fremdrecht:{SELECT_RIGHT}"'
+    assert unsafe_formatting(insert_right) == []
+    assert unsafe_formatting(select_right) == ["f-string"]
+
+
 # Das Paket
 
 
@@ -266,11 +368,27 @@ def test_package_sql_has_no_write_or_structure_keywords() -> None:
     offenders: dict[str, list[str]] = {}
     for source in _sources():
         found = forbidden_words(
-            source.read_text(encoding="utf-8"), allow_privilege_names=source == DB_MODULE
+            source.read_text(encoding="utf-8"),
+            allow_privilege_names=source == DB_MODULE,
+            allow_insert_into=source == DB_MODULE,
         )
         if found:
             offenders[str(source.relative_to(PACKAGE))] = found
     assert not offenders, f"Schlüsselwörter in Zeichenketten: {offenders}"
+
+
+def test_insert_into_appears_only_in_the_db_module() -> None:
+    """Auch auf die drei erlaubten Tabellen: INSERT INTO steht in keinem anderen Modul des Pakets."""
+    offenders = [
+        str(source.relative_to(PACKAGE))
+        for source in _sources()
+        if source != DB_MODULE
+        and any(
+            re.search(r"\bINSERT\s+INTO\b", text, re.IGNORECASE)
+            for text in string_constants(ast.parse(source.read_text(encoding="utf-8")))
+        )
+    ]
+    assert not offenders, f"INSERT INTO außerhalb von db.py: {offenders}"
 
 
 def test_package_never_puts_values_into_sql_text() -> None:
