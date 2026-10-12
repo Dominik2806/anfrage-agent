@@ -158,12 +158,14 @@ def test_a_percent_encoded_dash_is_the_same_path(
     """/mcp%2Dwrite wird vor der App zu /mcp-write dekodiert: Die Weiche wählt die Schreib-App, und deren Route trifft.
 
     Weder gewinnt das Lese-Token über eine Schreibweise des Pfads, noch führt die Weiche zu einer Route, die der
-    Weiche widerspricht. Doppelt kodiert (/mcp%252Dwrite) ist ein anderer Pfad: Lese-App, kein Treffer.
+    Weiche widerspricht. Doppelt kodierte Pfade (/mcp%252Dwrite) sind hier nicht prüfbar: Der Starlette-TestClient
+    dekodiert zweimal (httpx.URL.path, danach unquote), ein echter Server nur einmal. Dieser Fall steht in
+    test_mcp_switch.py.
     """
     for encoded in ("/mcp%2Dwrite", "/mcp-writ%65", "/%6Dcp-write"):
         assert _post(dual_client, encoded, write_headers).status_code == 200, encoded
         assert _post(dual_client, encoded, read_headers).status_code == 401, encoded
         assert _post(dual_client, encoded).status_code == 401, encoded
-    for other in ("/mcp%252Dwrite", "/mcp%2Fwrite"):
+    for other in ("/mcp%2Fwrite",):
         assert _post(dual_client, other, write_headers).status_code == 401, other
         assert _post(dual_client, other, read_headers).status_code == 404, other

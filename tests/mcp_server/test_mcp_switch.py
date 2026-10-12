@@ -88,6 +88,7 @@ def test_exact_write_path_goes_to_the_write_app() -> None:
         pytest.param("mcp-write", id="ohne-schrägstrich"),
         pytest.param("/mcp-write ", id="leerzeichen-hinten"),
         pytest.param("/mcp-write\x00", id="nul-hinten"),
+        pytest.param("/mcp%2Dwrite", id="prozent-kodiert-wörtlich"),
     ],
 )
 def test_every_other_path_goes_to_the_read_app(path: str) -> None:
