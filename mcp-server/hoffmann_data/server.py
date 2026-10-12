@@ -1,10 +1,14 @@
-"""MCP-Server hoffmann-data: acht Schnittstellen aus Auftrag 6.4.
+"""MCP-Server hoffmann-data: acht Schnittstellen aus Auftrag 6.4, auf zwei Pfaden mit zwei Token (ADR 0005).
 
-Seit F07 sind search_products, get_product und find_customer echt (Daten aus PostgreSQL, nur lesend).
-create_lead und log_activity (F08), beide Resources und der Prompt sind noch Platzhalter: Sie liefern
-einen festen Fehler "noch nicht implementiert", nie Scheindaten, und haben keine Parameter.
+Lese-Pfad /mcp (Lese-Token): search_products, get_product und find_customer sind seit F07 echt (Daten aus
+PostgreSQL, nur lesend); beide Resources und der Prompt sind noch Platzhalter.
+Schreib-Pfad /mcp-write (Schreib-Token, nur mit Schreibkonfiguration): create_lead und log_activity (F08), bis zur
+Umsetzung Platzhalter. Platzhalter liefern einen festen Fehler "noch nicht implementiert", nie Scheindaten, und haben
+keine Parameter. Jeder Pfad listet nur seine Schnittstellen; beide zusammen sind die acht.
 Fehlertexte enthalten keine Eingabewerte. Es gibt keine Werkzeuge zum Versenden oder Löschen
 (Auftrag 5.1). Ohne Datenbank antworten die Lese-Werkzeuge mit "nicht konfiguriert", nie mit Scheindaten.
+
+Jede App liegt in ihrer eigenen BearerTokenMiddleware; davor wählt die Pfadweiche (switch.py) nur nach dem Pfad.
 """
 
 from typing import Annotated, Any
@@ -15,15 +19,19 @@ from mcp.server.transport_security import TransportSecuritySettings
 from mcp.shared.exceptions import MCPError
 from mcp_types import INTERNAL_ERROR
 from pydantic import WithJsonSchema
+from starlette.applications import Starlette
 from starlette.types import ASGIApp
 
 from hoffmann_data import catalog, crm
 from hoffmann_data.auth import BearerTokenMiddleware
 from hoffmann_data.config import LOOPBACK_HOSTS, Config
-from hoffmann_data.db import ConnectionSource, Database
+from hoffmann_data.db import ConnectionSource, Database, WriteDatabase
 from hoffmann_data.limits import DEFAULT_LIMIT, MAX_LIMIT, MAX_QUERY_LENGTH
+from hoffmann_data.switch import PathSwitch
 
 STREAMABLE_HTTP_PATH = "/mcp"
+# Schreib-Pfad (ADR 0005 Punkt 3): nur mit Schreibkonfiguration, nur mit dem Schreib-Token
+WRITE_HTTP_PATH = "/mcp-write"
 NOT_IMPLEMENTED = "Diese Schnittstelle ist noch nicht implementiert."
 
 # Eingabeschema von search_products. Die Parameter sind absichtlich als Any mit eigenem JSON-Schema
@@ -103,12 +111,13 @@ _LOOPBACK_ALLOWED_HOSTS = ("127.0.0.1:*", "localhost:*", "[::1]:*")
 _LOOPBACK_ALLOWED_ORIGINS = ("http://127.0.0.1:*", "http://localhost:*", "http://[::1]:*")
 
 
-def create_mcp_server(database: ConnectionSource | None = None) -> MCPServer:
+def create_read_server(database: ConnectionSource | None = None) -> MCPServer:
+    """Der Server des Lese-Pfads /mcp: drei Lese-Werkzeuge, beide Resources, der Prompt (nie ein Schreib-Werkzeug)."""
     server = MCPServer(
         "hoffmann-data",
         instructions=(
             "Datenservice der Hoffmann Maschinenbau GmbH. search_products und get_product lesen den "
-            "Katalog, find_customer liest das CRM; die übrigen Schnittstellen sind noch Platzhalter."
+            "Katalog, find_customer liest das CRM; die Resources und der Prompt sind noch Platzhalter."
         ),
     )
 
@@ -131,18 +140,6 @@ def create_mcp_server(database: ConnectionSource | None = None) -> MCPServer:
         query: Annotated[Any, WithJsonSchema(CUSTOMER_QUERY_SCHEMA)],
     ) -> crm.CustomerResult:
         return crm.find_customer(database, query)
-
-    @server.tool(
-        name="create_lead", description="Neuen Lead anlegen, nur nach Freigabe (Platzhalter)."
-    )
-    def create_lead() -> str:
-        raise ToolError(NOT_IMPLEMENTED)
-
-    @server.tool(
-        name="log_activity", description="Aktivität zu einem Kunden protokollieren (Platzhalter)."
-    )
-    def log_activity() -> str:
-        raise ToolError(NOT_IMPLEMENTED)
 
     @server.resource(
         "policy://tonalitaet",
@@ -174,6 +171,36 @@ def create_mcp_server(database: ConnectionSource | None = None) -> MCPServer:
     return server
 
 
+def create_write_server(write_database: ConnectionSource | None = None) -> MCPServer:
+    """Der Server des Schreib-Pfads /mcp-write: nur create_lead und log_activity, keine Resources, kein Prompt.
+
+    Beide sind bis zur Umsetzung Platzhalter und greifen nicht auf die Datenbank zu; `write_database` ist die
+    Schnittstelle für die Umsetzung (F08 Etappe 4) und wird bis dahin nicht benutzt.
+    """
+    server = MCPServer(
+        "hoffmann-data-write",
+        instructions=(
+            "Schreib-Werkzeuge des Datenservice der Hoffmann Maschinenbau GmbH: create_lead legt einen Lead an, "
+            "log_activity protokolliert eine Aktivität. Diesen Pfad nutzt nur der Freigabeweg. "
+            "Beide Werkzeuge sind noch Platzhalter."
+        ),
+    )
+
+    @server.tool(
+        name="create_lead", description="Neuen Lead anlegen, nur nach Freigabe (Platzhalter)."
+    )
+    def create_lead() -> str:
+        raise ToolError(NOT_IMPLEMENTED)
+
+    @server.tool(
+        name="log_activity", description="Aktivität zu einem Kunden protokollieren (Platzhalter)."
+    )
+    def log_activity() -> str:
+        raise ToolError(NOT_IMPLEMENTED)
+
+    return server
+
+
 def transport_security(config: Config) -> TransportSecuritySettings:
     """Host-/Origin-Schutz, immer ausdrücklich gesetzt (das SDK schaltet ihn nur für Loopback selbst ein)."""
     if config.host in LOOPBACK_HOSTS:
@@ -189,20 +216,55 @@ def transport_security(config: Config) -> TransportSecuritySettings:
     )
 
 
-def create_app(config: Config, database: ConnectionSource | None = None) -> ASGIApp:
-    """Die SDK-App für Streamable HTTP, außen umhüllt von der Token-Prüfung (ADR 0003).
+def _sdk_app(server: MCPServer, path: str, config: Config) -> Starlette:
+    """Die SDK-App für Streamable HTTP auf `path`; beide Pfade bekommen dieselben Einstellungen aus einer Stelle.
 
-    Ohne `database` wird sie aus `config.database_url` gebaut (der Konstruktor verbindet nicht); ohne beides
-    antworten die Lese-Werkzeuge mit "nicht konfiguriert".
+    Das Größenlimit (413) und der Host-/Origin-Schutz (421, 403) sitzen im SDK, hinter der Token-Prüfung, die jede
+    App von außen umhüllt (create_app): Ohne gültiges Token bleibt es bei 401.
     """
-    if database is None and config.database_url is not None:
-        database = Database(config.database_url)
-    sdk_app = create_mcp_server(database).streamable_http_app(
-        streamable_http_path=STREAMABLE_HTTP_PATH,
+    return server.streamable_http_app(
+        streamable_http_path=path,
         json_response=False,
         stateless_http=True,
         transport_security=transport_security(config),
         host=config.host,
         max_request_body_size=MAX_REQUEST_BODY_BYTES,
     )
-    return BearerTokenMiddleware(sdk_app, config.token)
+
+
+def create_app(
+    config: Config,
+    database: ConnectionSource | None = None,
+    write_database: ConnectionSource | None = None,
+) -> ASGIApp:
+    """Die App des Datenservice: Lese-App, mit Schreibkonfiguration dazu die Schreib-App hinter einer Pfadweiche.
+
+    Jede App liegt in ihrer eigenen Token-Prüfung (ADR 0003): die Lese-App mit dem Lese-Token auf /mcp, die
+    Schreib-App mit dem Schreib-Token auf /mcp-write. Eine übergebene `database` bzw. `write_database` hat Vorrang;
+    ohne Übergabe werden sie aus `config.database_url` bzw. `config.write_database_url` gebaut (die Konstruktoren
+    verbinden nicht). Ohne Lese-Datenbank antworten die Lese-Werkzeuge mit "nicht konfiguriert".
+    Der Schreibweg entsteht nur mit `config.write_enabled`: Ohne Schreibkonfiguration gibt es weder Schreib-App noch
+    Weiche, und /mcp-write ist ein unbekannter Pfad der Lese-App; eine übergebene `write_database` allein ändert das nie.
+    """
+    if database is None and config.database_url is not None:
+        database = Database(config.database_url)
+    read_server = create_read_server(database)
+    read_app = BearerTokenMiddleware(
+        _sdk_app(read_server, STREAMABLE_HTTP_PATH, config), config.token
+    )
+
+    write_token = config.write_token
+    if not config.write_enabled or write_token is None:
+        return read_app
+
+    if write_database is None and config.write_database_url is not None:
+        write_database = WriteDatabase(config.write_database_url)
+    write_server = create_write_server(write_database)
+    write_app = BearerTokenMiddleware(_sdk_app(write_server, WRITE_HTTP_PATH, config), write_token)
+    # session_manager gibt es erst nach streamable_http_app(); die Weiche startet beide Manager selbst
+    return PathSwitch(
+        read_app,
+        write_app,
+        write_path=WRITE_HTTP_PATH,
+        lifespans=(read_server.session_manager.run, write_server.session_manager.run),
+    )
