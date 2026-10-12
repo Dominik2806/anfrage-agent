@@ -174,6 +174,24 @@ def db_schema(db_url: str) -> Iterator[str]:
             # search_path nur auf das Testschema: unqualifizierte Namen landen nie in public
             with _connect(db_url, autocommit=True, options=f"-csearch_path={name}") as setup:
                 setup.execute(SCHEMA_SQL.read_text(encoding="utf-8"))
+                # Kein Autovacuum und keine Autoanalyse in den Tabellen dieses Testschemas: Die Tests committen echte
+                # Zeilen (Tests des Schreibwegs), und ein Server-Arbeiter auf diesen Tabellen gerät sonst mit dem
+                # GRANT und dem DROP POLICY des ro-Skripts (ro_role) in einen Sperrzyklus (DeadlockDetected).
+                # Nur Schema test_<zufall>; die Tabellen kommen aus pg_tables, damit neue Tabellen dabei sind.
+                tables = [
+                    row[0]
+                    for row in setup.execute(
+                        "SELECT tablename FROM pg_tables WHERE schemaname = %s ORDER BY tablename",
+                        (name,),
+                    ).fetchall()
+                ]
+                assert tables, "schema.sql hat keine Tabellen angelegt"
+                for table in tables:
+                    setup.execute(
+                        sql.SQL("ALTER TABLE {} SET (autovacuum_enabled = false)").format(
+                            sql.Identifier(name, table)
+                        )
+                    )
             yield name
         finally:
             admin.execute(sql.SQL("DROP SCHEMA {} CASCADE").format(ident))
