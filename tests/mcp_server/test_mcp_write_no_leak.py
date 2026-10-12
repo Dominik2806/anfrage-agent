@@ -65,11 +65,39 @@ def _responses(client: TestClient, read_token: str, write_token: str) -> list[tu
         post(f"{path} fehlt", path, None)
         post(f"{path} host", path, {**_bearer(own), "Host": "evil.example"})
         post(f"{path} origin", path, {**_bearer(own), "Origin": "http://evil.example"})
+    # Alle Pflichtfelder gültig, genau ein Wert ungültig: Der Aufruf erreicht die Eingabeprüfung in limits.py (feste
+    # Meldung, keine Datenbank) und löst nicht den SDK-Fehler für fehlende Argumente aus (Issue #21)
     post(
-        "write platzhalter",
+        "write create_lead eingabefehler",
         WRITE_PATH,
         _bearer(write_token),
-        json=_call(WRITE_PATH, "create_lead", {"query": "x"}),
+        json=_call(
+            WRITE_PATH,
+            "create_lead",
+            {
+                "company_name": "",
+                "contact_first_name": "Erika",
+                "contact_last_name": "Muster",
+                "contact_email": "erika@firma.example",
+                "language": "de",
+                "country": "de",
+            },
+        ),
+    )
+    post(
+        "write log_activity eingabefehler",
+        WRITE_PATH,
+        _bearer(write_token),
+        json=_call(
+            WRITE_PATH,
+            "log_activity",
+            {
+                "customer_domain": "firma.example",
+                "type": "call",
+                "subject": "Betreff",
+                "summary": "Text",
+            },
+        ),
     )
     post("write unbekannt", WRITE_PATH, _bearer(write_token), json=_call(WRITE_PATH, "send_email"))
     post(

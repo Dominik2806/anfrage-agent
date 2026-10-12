@@ -16,11 +16,11 @@ import pytest
 from mcp_testkit import (
     INTERNAL_ERROR_CODE,
     NOT_IMPLEMENTED,
-    PLACEHOLDER_TOOLS,
     PROMPT_NAMES,
     READ_TOOLS,
     RESOURCE_URIS,
     TOOL_NAMES,
+    WRITE_TOOLS,
 )
 
 Rpc = Callable[..., dict[str, Any]]
@@ -62,11 +62,11 @@ def test_no_tool_can_send_or_delete(rpc: Rpc) -> None:
 
 
 def test_tool_groups_cover_the_five_tools_without_overlap() -> None:
-    assert READ_TOOLS | PLACEHOLDER_TOOLS == TOOL_NAMES
-    assert not READ_TOOLS & PLACEHOLDER_TOOLS
+    assert READ_TOOLS | WRITE_TOOLS == TOOL_NAMES
+    assert not READ_TOOLS & WRITE_TOOLS
 
 
-@pytest.mark.parametrize("tool", sorted(PLACEHOLDER_TOOLS))
+@pytest.mark.parametrize("tool", sorted(WRITE_TOOLS))
 def test_the_write_tools_are_unknown_on_the_read_path(rpc: Rpc, tool: str) -> None:
     """Seit F08 liegen create_lead und log_activity auf /mcp-write. Auf /mcp sind sie unbekannt, nicht Platzhalter."""
     body = rpc("tools/call", {"name": tool, "arguments": {}})
@@ -168,7 +168,7 @@ def test_find_customer_input_schema(rpc: Rpc) -> None:
 def test_read_tools_declare_an_output_schema(rpc: Rpc, tool: str, fields: set[str]) -> None:
     """Annahme: Das SDK leitet aus dem Rückgabetyp ein outputSchema ab. Etappe 4 belegt oder ändert das.
 
-    Geprüft werden die festgelegten Feldnamen: Die Platzhalter (Rückgabe str) haben höchstens ein Schema
+    Geprüft werden die festgelegten Feldnamen: Eine Rückgabe vom Typ str hätte höchstens ein Schema
     mit dem Feld "result", das genügt hier nicht.
     """
     output_schema = _tools(rpc)[tool].get("outputSchema")

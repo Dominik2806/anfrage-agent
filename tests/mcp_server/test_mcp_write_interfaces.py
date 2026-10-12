@@ -2,8 +2,8 @@
 
 Festlegungen:
 - /mcp (Lese-Token) listet drei Lese-Werkzeuge, beide Resources und den Prompt; /mcp-write (Schreib-Token) listet nur
-  create_lead und log_activity. create_lead ist noch Platzhalter (fester Fehler "noch nicht implementiert");
-  log_activity ist seit Etappe 4b ein echtes Werkzeug (Verhalten: test_log_activity.py).
+  create_lead und log_activity. Beide sind echte Werkzeuge (Verhalten: test_log_activity.py seit Etappe 4b,
+  test_create_lead.py seit Etappe 4c); Platzhalter sind nur noch beide Resources und der Prompt auf /mcp.
 - Jedes Werkzeug ist auf dem anderen Pfad unbekannt (Ergebnis mit isError, kein Protokollfehler, nie der Platzhalterfehler
   und nie ein Datenbankzugriff). Der Schreib-Server hat keine Resources und keinen Prompt.
 - Auslegung von F06 ("listet seine Schnittstellen auf", ADR 0005, ADR-Eintrag folgt): Jeder Pfad listet seine
@@ -22,7 +22,6 @@ from typing import Any
 import pytest
 from mcp_testkit import (
     NOT_IMPLEMENTED,
-    PLACEHOLDER_WRITE_TOOLS,
     PROMPT_NAMES,
     READ_TOOLS,
     RESOURCE_URIS,
@@ -141,34 +140,34 @@ def test_an_unknown_tool_on_the_write_path_is_a_tool_error_result(rpc_write: Rpc
     assert NOT_IMPLEMENTED not in json.dumps(body, ensure_ascii=False)
 
 
-# Die Platzhalter unter den Schreib-Werkzeugen (nur create_lead); zogen von test_mcp_interfaces.py hierher um.
-# log_activity ist seit Etappe 4b kein Platzhalter mehr: Fehlerfall, Beschreibung und kein Echo stehen für dieses Werkzeug
-# in test_log_activity.py (Ende zu Ende, Beschreibung, Kein Echo).
+# Beide Schreib-Werkzeuge sind echte Werkzeuge. Hier stehen die Prüfungen, die für beide gleich gelten und keine
+# Datenbank brauchen. Ihr Verhalten steht in test_log_activity.py und test_create_lead.py. Ersatz für die früheren
+# Platzhalter-Tests (Fehler "noch nicht implementiert", Beschreibung "Platzhalter", Platzhalterfehler ohne Echo):
+# - Fehler ohne Daten: test_each_write_tool_without_arguments_is_an_error_not_data (unten)
+# - Beschreibung: test_each_write_tool_is_a_real_tool (unten)
+# - kein Echo der Eingabe: nicht hier. Für Werkzeuge mit Pflichtargumenten gibt das SDK bei fehlenden Argumenten den
+#   Argument-Dict zurück (Issue #21, mcp-server/CLAUDE.md); der Test "Kein Echo" steht deshalb mit gültig geformten
+#   Aufrufen in test_log_activity.py (Abschnitt 10) und test_create_lead.py (Abschnitt 11).
 
 
-@pytest.mark.parametrize("tool", sorted(PLACEHOLDER_WRITE_TOOLS))
-def test_each_write_tool_placeholder_returns_an_error_not_data(rpc_write: Rpc, tool: str) -> None:
+@pytest.mark.parametrize("tool", sorted(WRITE_TOOLS))
+def test_each_write_tool_without_arguments_is_an_error_not_data(rpc_write: Rpc, tool: str) -> None:
+    """Fehlende Pflichtargumente: ein Fehler des SDKs, weder Daten noch Platzhalterfehler. Nur isError wird geprüft."""
     result = rpc_write("tools/call", {"name": tool, "arguments": {}})["result"]
     assert result["isError"] is True
-    assert NOT_IMPLEMENTED in _text(result)
+    assert NOT_IMPLEMENTED not in _text(result)
     assert not result.get("structuredContent")
 
 
-@pytest.mark.parametrize("tool", sorted(PLACEHOLDER_WRITE_TOOLS))
-def test_the_write_tools_are_described_as_placeholders(rpc_write: Rpc, tool: str) -> None:
-    """create_lead bekommt sein Verhalten in einer späteren Etappe; bis dahin sagt die Beschreibung Platzhalter."""
-    description = _tools(rpc_write)[tool]["description"]
-    assert description.strip()
-    assert "platzhalter" in description.lower()
-
-
-@pytest.mark.parametrize("tool", sorted(PLACEHOLDER_WRITE_TOOLS))
-def test_the_placeholder_error_does_not_echo_arguments(rpc_write: Rpc, tool: str) -> None:
-    """Der Platzhalterfehler gibt keine Eingabewerte aus (Kundentext ist Daten, kein Echo)."""
-    body = rpc_write("tools/call", {"name": tool, "arguments": {"query": "GEHEIM-4711"}})
-    dumped = json.dumps(body, ensure_ascii=False)
-    assert NOT_IMPLEMENTED in dumped, "es kam nicht der Platzhalterfehler"
-    assert "GEHEIM-4711" not in dumped
+@pytest.mark.parametrize("tool", sorted(WRITE_TOOLS))
+def test_each_write_tool_is_a_real_tool(rpc_write: Rpc, tool: str) -> None:
+    """Beschreibung vorhanden und kein Platzhalter; das outputSchema nennt mehr als nur ein Feld "result"."""
+    listed = _tools(rpc_write)[tool]
+    assert listed["description"].strip()
+    assert "platzhalter" not in listed["description"].lower()
+    output_schema = listed.get("outputSchema")
+    assert isinstance(output_schema, dict) and output_schema.get("type") == "object"
+    assert set(output_schema.get("properties", {})) not in (set(), {"result"})
 
 
 def test_no_write_tool_can_send_or_delete(rpc_write: Rpc) -> None:

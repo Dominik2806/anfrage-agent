@@ -14,7 +14,6 @@ import pytest
 from mcp_testkit import (
     MAX_REQUEST_BODY_BYTES,
     MCP_PATH,
-    NOT_IMPLEMENTED,
     RPC_HEADERS,
     WRITE_PATH,
     body_of_size,
@@ -23,6 +22,21 @@ from mcp_testkit import (
 from starlette.testclient import TestClient
 
 TOOL = "create_lead"
+# Die fünf übrigen Pflichtfelder von create_lead, gültig. Das aufgefüllte Feld ist company_name: Es ist das erste Feld,
+# das das Werkzeug prüft, und ist hier zu lang. So erreicht der Aufruf die Eingabeprüfung in limits.py (feste Meldung,
+# keine Datenbank) und löst nicht den SDK-Fehler für fehlende Argumente aus (Issue #21).
+PAD_FIELD = "company_name"
+VALID_REST = {
+    "contact_first_name": "Erika",
+    "contact_last_name": "Muster",
+    "contact_email": "erika@firma.example",
+    "language": "de",
+    "country": "de",
+}
+
+
+def _body(size: int) -> bytes:
+    return body_of_size(size, TOOL, field=PAD_FIELD, extra=VALID_REST)
 
 
 def _post(client: TestClient, body: bytes, headers: dict[str, str] | None = None) -> Any:
@@ -32,41 +46,42 @@ def _post(client: TestClient, body: bytes, headers: dict[str, str] | None = None
 def test_body_just_under_the_limit_is_accepted(
     dual_client: TestClient, write_headers: dict[str, str]
 ) -> None:
-    response = _post(dual_client, body_of_size(MAX_REQUEST_BODY_BYTES - 1, TOOL), write_headers)
+    """Die Anfrage erreicht das Werkzeug: Es antwortet mit seiner festen Meldung zum zu langen Firmennamen."""
+    from hoffmann_data.limits import COMPANY_NAME_INVALID
+
+    response = _post(dual_client, _body(MAX_REQUEST_BODY_BYTES - 1), write_headers)
     assert response.status_code == 200
-    assert NOT_IMPLEMENTED in json.dumps(parse_rpc_body(response), ensure_ascii=False)
+    assert COMPANY_NAME_INVALID in json.dumps(parse_rpc_body(response), ensure_ascii=False)
 
 
 def test_body_over_the_limit_returns_413(
     dual_client: TestClient, write_headers: dict[str, str]
 ) -> None:
-    response = _post(dual_client, body_of_size(MAX_REQUEST_BODY_BYTES + 1, TOOL), write_headers)
+    response = _post(dual_client, _body(MAX_REQUEST_BODY_BYTES + 1), write_headers)
     assert response.status_code == 413
 
 
 def test_much_larger_body_returns_413(
     dual_client: TestClient, write_headers: dict[str, str]
 ) -> None:
-    assert _post(dual_client, body_of_size(1024 * 1024, TOOL), write_headers).status_code == 413
+    assert _post(dual_client, _body(1024 * 1024), write_headers).status_code == 413
 
 
 def test_large_body_without_token_stays_401(dual_client: TestClient) -> None:
     for size in (MAX_REQUEST_BODY_BYTES - 1, MAX_REQUEST_BODY_BYTES + 1, 1024 * 1024):
-        assert _post(dual_client, body_of_size(size, TOOL)).status_code == 401
+        assert _post(dual_client, _body(size)).status_code == 401
 
 
 def test_large_body_with_wrong_token_stays_401(dual_client: TestClient, write_token: str) -> None:
     wrong = {"Authorization": "Bearer " + "q" * len(write_token)}
-    assert (
-        _post(dual_client, body_of_size(MAX_REQUEST_BODY_BYTES + 1, TOOL), wrong).status_code == 401
-    )
+    assert _post(dual_client, _body(MAX_REQUEST_BODY_BYTES + 1), wrong).status_code == 401
 
 
 def test_large_body_with_the_read_token_stays_401(
     dual_client: TestClient, read_headers: dict[str, str]
 ) -> None:
     for size in (MAX_REQUEST_BODY_BYTES - 1, MAX_REQUEST_BODY_BYTES + 1):
-        assert _post(dual_client, body_of_size(size, TOOL), read_headers).status_code == 401
+        assert _post(dual_client, _body(size), read_headers).status_code == 401
 
 
 @pytest.mark.parametrize("delta", [0, 1])
@@ -83,7 +98,7 @@ def test_the_limit_is_exactly_the_same_on_both_paths(
         content=body_of_size(size, "search_products"),
         headers={**RPC_HEADERS, **read_headers},
     )
-    write = _post(dual_client, body_of_size(size, TOOL), write_headers)
+    write = _post(dual_client, _body(size), write_headers)
     assert read.status_code == write.status_code == (200 if delta == 0 else 413)
 
 

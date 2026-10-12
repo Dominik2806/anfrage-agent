@@ -84,9 +84,9 @@ BASE_URL = "http://127.0.0.1:8000"
 MCP_PATH = "/mcp"
 
 TOOL_NAMES = {"search_products", "get_product", "find_customer", "create_lead", "log_activity"}
-# F07: die drei lesenden Werkzeuge sind echt, die übrigen bleiben Platzhalter (F08)
+# Drei Lese- und zwei Schreib-Werkzeuge, alle echt (F07, F08). Die Schreib-Werkzeuge: WRITE_TOOLS weiter unten.
+# Platzhalter sind nur noch beide Resources und der Prompt auf /mcp (NOT_IMPLEMENTED).
 READ_TOOLS = {"search_products", "get_product", "find_customer"}
-PLACEHOLDER_TOOLS = {"create_lead", "log_activity"}
 PRODUCTS_JSON = ROOT / "data" / "stammdaten" / "products.json"
 RESOURCE_URIS = {"policy://tonalitaet", "policy://rabatte"}
 PROMPT_NAMES = {"antwort_entwurf"}
@@ -325,16 +325,19 @@ def delete_marker_rows(conn: Any, pattern: str = f"{ROW_MARKER}-%") -> None:
 
 # Zwei Pfade, zwei Token, Pfadweiche (F08 Etappe 3, ADR 0005 Punkte 3 und 4)
 WRITE_PATH = "/mcp-write"
-# Seit F08 liegen create_lead und log_activity auf WRITE_PATH, nicht mehr auf MCP_PATH. log_activity ist seit
-# Etappe 4b kein Platzhalter mehr (siehe PLACEHOLDER_WRITE_TOOLS weiter unten); create_lead bleibt einer.
+# Seit F08 liegen create_lead und log_activity auf WRITE_PATH, nicht mehr auf MCP_PATH. Beide sind echte Werkzeuge
+# (log_activity seit Etappe 4b, create_lead seit Etappe 4c).
 WRITE_TOOLS = {"create_lead", "log_activity"}
 
 
-def body_of_size(size: int, tool: str) -> bytes:
-    """Gültiger JSON-RPC-Aufruf von `tool` mit genau `size` Bytes (nur ASCII), das Argument `query` füllt auf.
+def body_of_size(
+    size: int, tool: str, *, field: str = "query", extra: dict[str, Any] | None = None
+) -> bytes:
+    """Gültiger JSON-RPC-Aufruf von `tool` mit genau `size` Bytes (nur ASCII), das Argument `field` füllt auf.
 
     Gemeinsame Hilfe für die Größenprüfungen auf /mcp-write (test_mcp_write_limits.py). Geprüft wird nur die
-    Größenbegrenzung der Anfrage, nicht der Inhalt des Arguments.
+    Größenbegrenzung der Anfrage, nicht der Inhalt des Arguments. `extra` sind weitere Argumente (z. B. die übrigen
+    Pflichtfelder eines Werkzeugs), damit der Aufruf die Eingabeprüfung des Werkzeugs erreicht.
     """
 
     def build(pad: int) -> bytes:
@@ -342,7 +345,7 @@ def body_of_size(size: int, tool: str) -> bytes:
             "jsonrpc": "2.0",
             "id": 1,
             "method": "tools/call",
-            "params": {"name": tool, "arguments": {"query": "x" * pad}},
+            "params": {"name": tool, "arguments": {field: "x" * pad, **(extra or {})}},
         }
         return json.dumps(payload).encode("ascii")
 
@@ -422,10 +425,6 @@ def fake_lifespan(name: str, events: list[str], fail_on: str | None = None) -> A
     return factory
 
 
-# log_activity (F08 Etappe 4b): create_lead bleibt Platzhalter, log_activity ist ein echtes Werkzeug
-PLACEHOLDER_WRITE_TOOLS = {"create_lead"}
-
-
 class CountingDatabase:
     """ConnectionSource, die nie benutzt werden darf: Jeder Zugriff wird gezählt und wirft AssertionError.
 
@@ -472,9 +471,10 @@ def _statement_text(query: Any) -> str:
 
 
 class _RecordedCursor:
-    def __init__(self, inner: Any, record: Any) -> None:
+    def __init__(self, inner: Any, record: Any, before: Any) -> None:
         self._inner = inner
         self._record = record
+        self._before = before
 
     def __enter__(self) -> "_RecordedCursor":
         return self
@@ -483,6 +483,7 @@ class _RecordedCursor:
         self._inner.close()
 
     def execute(self, query: Any, params: Any = None, **kwargs: Any) -> "_RecordedCursor":
+        self._before(_statement_text(query), params)
         self._inner.execute(query, params, **kwargs)
         self._record(_statement_text(query), params)
         return self
@@ -492,17 +493,19 @@ class _RecordedCursor:
 
 
 class _RecordedConnection:
-    def __init__(self, inner: Any, record: Any) -> None:
+    def __init__(self, inner: Any, record: Any, before: Any) -> None:
         self._inner = inner
         self._record = record
+        self._before = before
 
     def execute(self, query: Any, params: Any = None, **kwargs: Any) -> Any:
+        self._before(_statement_text(query), params)
         result = self._inner.execute(query, params, **kwargs)
         self._record(_statement_text(query), params)
         return result
 
     def cursor(self, *args: Any, **kwargs: Any) -> _RecordedCursor:
-        return _RecordedCursor(self._inner.cursor(*args, **kwargs), self._record)
+        return _RecordedCursor(self._inner.cursor(*args, **kwargs), self._record, self._before)
 
     def __getattr__(self, name: str) -> Any:
         return getattr(self._inner, name)
@@ -513,19 +516,63 @@ class StatementRecorder:
 
     `on_execute(text, params)` (optional) läuft **nach** jedem Befehl, auf dem Weg des Aufrufers: So lässt sich
     prüfen, was eine zweite Verbindung mitten im Aufruf sieht, oder ein Fehler nach einem Befehl einspritzen.
+    `before_execute(text, params)` (optional) läuft **vor** jedem Befehl: So lässt sich ein Konkurrent einfügen, bevor
+    der INSERT des Aufrufs läuft (der Befehl scheitert dann mit dem echten Fehler der Datenbank), oder ein Fehler
+    anstelle des Befehls einspritzen. Ein Befehl, vor dem der Hook wirft, wird nicht ausgeführt und nicht aufgezeichnet.
+    `connections` zählt, wie oft `connection()` geöffnet wurde (= Zahl der Versuche eines Aufrufs).
     """
 
-    def __init__(self, inner: Any, on_execute: Any = None) -> None:
+    def __init__(self, inner: Any, on_execute: Any = None, before_execute: Any = None) -> None:
         self._inner = inner
         self._on_execute = on_execute
+        self._before_execute = before_execute
         self.statements: list[tuple[str, Any]] = []
+        self.connections = 0
 
     def _record(self, text: str, params: Any) -> None:
         self.statements.append((text, params))
         if self._on_execute is not None:
             self._on_execute(text, params)
 
+    def _before(self, text: str, params: Any) -> None:
+        if self._before_execute is not None:
+            self._before_execute(text, params)
+
     @contextmanager
     def connection(self) -> Iterator[_RecordedConnection]:
+        self.connections += 1
         with self._inner.connection() as connection:
-            yield _RecordedConnection(connection, self._record)
+            yield _RecordedConnection(connection, self._record, self._before)
+
+
+# Hilfen für Aufrufe über HTTP an /mcp-write mit einer Datenbank (Ende-zu-Ende-Tests von create_lead).
+# `client` ist ein TestClient (e2e_client_for), `headers` enthält das Token.
+
+
+def rpc_post(
+    client: Any,
+    headers: dict[str, str],
+    method: str,
+    params: dict[str, Any] | None = None,
+    path: str = WRITE_PATH,
+) -> Any:
+    """Schickt rohes JSON-RPC an `path` und gibt die HTTP-Antwort zurück (Status wird nicht geprüft)."""
+    payload = {"jsonrpc": "2.0", "id": 1, "method": method, "params": params or {}}
+    return client.post(path, json=payload, headers={**RPC_HEADERS, **headers})
+
+
+def tool_call_post(
+    client: Any,
+    headers: dict[str, str],
+    name: str,
+    arguments: dict[str, Any],
+    path: str = WRITE_PATH,
+) -> Any:
+    """tools/call für das Werkzeug `name` mit `arguments`; gibt die HTTP-Antwort zurück."""
+    return rpc_post(client, headers, "tools/call", {"name": name, "arguments": arguments}, path)
+
+
+def result_of(response: Any) -> dict[str, Any]:
+    """`result` einer JSON-RPC-Antwort mit HTTP 200 (auch bei isError); bricht bei anderem Status ab."""
+    assert response.status_code == 200, response.text
+    return parse_rpc_body(response)["result"]

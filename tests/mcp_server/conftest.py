@@ -515,8 +515,8 @@ def committed_customers(db_url: str, db_schema: str) -> Callable[[str], int]:
 
 
 # Fixtures für den Doppelbetrieb (F08 Etappe 3): Lese-App auf /mcp, Schreib-App auf /mcp-write, davor die Weiche.
-# Beide Datenbanken werden aus der Config gebaut, aber nie verbunden (create_lead ist Platzhalter, die Tests rufen
-# keine Lese-Werkzeuge mit Datenbank auf; log_activity mit echter Datenbank: Fixtures weiter unten).
+# Beide Datenbanken werden aus der Config gebaut, aber nie verbunden (die Tests dieser Fixtures rufen keine Werkzeuge
+# mit Datenbank auf; create_lead und log_activity mit echter Datenbank: Fixtures weiter unten).
 # Ohne Schreibkonfiguration gelten weiter `app` und `client`.
 
 
