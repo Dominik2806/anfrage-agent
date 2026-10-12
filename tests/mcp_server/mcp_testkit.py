@@ -282,3 +282,42 @@ DBURL_INVALID: list[tuple[str, str | None, dict[str, str]]] = [
     ("datenbankname-ungueltiges-utf8", f"postgresql://{_CRED}@localhost/geheim%FF", {}),
     ("datenbankname-mit-slash", f"postgresql://{_CRED}@localhost/geheimdb/zweiter", {}),
 ]
+
+
+# Schreibweg (F08 Etappe 2, ADR 0005 Punkte 2 und 8). Die Zugangswerte der Schreib-URL enthalten "geheim",
+# damit Tests prüfen können, dass keine Meldung sie nennt.
+WRITE_URL_NAME = "MCP_SERVER_WRITE_DATABASE_URL"
+WRITE_TOKEN_NAME = "MCP_SERVER_WRITE_TOKEN"
+GOOD_READ_URL = f"postgresql://{_CRED}@localhost:5432/geheimdb"
+GOOD_WRITE_URL = "postgresql://geheimschreiber:geheimschreibpasswort@localhost:5432/geheimdb"
+WRITE_SECRETS = ("geheimschreiber", "geheimschreibpasswort")
+
+# Zeilen, die Tests mit echtem Commit anlegen, tragen diesen Marker in der Domain (".example" ist Pflicht des
+# Schemas). Aufgeräumt wird nur, was den Marker trägt; ohne Marker löscht nichts.
+ROW_MARKER = "mcp-schreibtest"
+
+
+def marker_row() -> dict[str, str]:
+    """Eindeutige Testwerte für einen Kunden und einen Kontakt, alle mit dem Marker."""
+    import uuid
+
+    suffix = uuid.uuid4().hex[:12]
+    return {
+        "company_name": f"{ROW_MARKER} {suffix}",
+        "domain": f"{ROW_MARKER}-{suffix}.example",
+        "email": f"kontakt@{ROW_MARKER}-{suffix}.example",
+    }
+
+
+def delete_marker_rows(conn: Any, pattern: str = f"{ROW_MARKER}-%") -> None:
+    """Löscht die Marker-Kunden samt Aktivitäten und Kontakten (in dieser Reihenfolge, wegen der Fremdschlüssel).
+
+    `pattern` ist ein LIKE-Muster für die Domain und muss mit "<Marker>-" beginnen; sonst ValueError und es
+    wird nichts gelöscht. Die Verbindung muss ein Commit selbst erledigen (autocommit) oder der Aufrufer committet.
+    """
+    if not pattern.startswith(f"{ROW_MARKER}-"):
+        raise ValueError("Das Muster muss mit dem Marker beginnen.")
+    owned = "(SELECT id FROM customers WHERE domain LIKE %s)"
+    conn.execute(f"DELETE FROM activities WHERE customer_id IN {owned}", (pattern,))
+    conn.execute(f"DELETE FROM contacts WHERE customer_id IN {owned}", (pattern,))
+    conn.execute("DELETE FROM customers WHERE domain LIKE %s", (pattern,))

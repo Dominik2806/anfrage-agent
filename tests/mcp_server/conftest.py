@@ -28,10 +28,15 @@ import psycopg
 import pytest
 from mcp_testkit import (
     BASE_URL,
+    GOOD_READ_URL,
+    GOOD_WRITE_URL,
     MCP_PATH,
     PRODUCTS_JSON,
     ROOT,
     RPC_HEADERS,
+    WRITE_TOKEN_NAME,
+    WRITE_URL_NAME,
+    delete_marker_rows,
     parse_rpc_body,
     render_role_script,
     render_write_role_script,
@@ -447,3 +452,62 @@ def real_database(db_url: str, db_schema: str) -> Any:
     from hoffmann_data.db import Database
 
     return Database(db_url, options=f"-csearch_path={db_schema}")
+
+
+# Fixtures für den Schreibweg (F08 Etappe 2). Die Tests mit Datenbank committen echte Zeilen ins Testschema;
+# alle tragen den Marker aus mcp_testkit (ROW_MARKER). marker_cleanup räumt vor und nach jedem Test auf und
+# löscht nie ohne Marker. Es gelten die Regeln von oben: nur TEST_DATABASE_URL, nur localhost:5432.
+
+
+@pytest.fixture
+def write_token(token: str) -> str:
+    """Zufälliges Schreib-Token, garantiert verschieden vom Lese-Token."""
+    other = secrets.token_urlsafe(32)
+    while other == token:
+        other = secrets.token_urlsafe(32)
+    return other
+
+
+@pytest.fixture
+def write_env(token: str, write_token: str) -> dict[str, str]:
+    """Gültige Umgebung mit Lese- und Schreibweg (beide URLs zeigen auf localhost, nichts wird verbunden)."""
+    return {
+        "MCP_SERVER_TOKEN": token,
+        "MCP_SERVER_DATABASE_URL": GOOD_READ_URL,
+        WRITE_URL_NAME: GOOD_WRITE_URL,
+        WRITE_TOKEN_NAME: write_token,
+    }
+
+
+@pytest.fixture
+def real_write_database(db_url: str, db_schema: str) -> Any:
+    """Die echte WriteDatabase auf dem Test-Server, mit search_path im Testschema (leere Tabellen)."""
+    from hoffmann_data.db import WriteDatabase
+
+    return WriteDatabase(db_url, options=f"-csearch_path={db_schema}")
+
+
+@pytest.fixture
+def marker_cleanup(db_url: str, db_schema: str) -> Iterator[None]:
+    """Löscht Zeilen mit dem Marker vor dem Test (veraltete Reste) und nach dem Test. Nie Zeilen ohne Marker."""
+    with _connect(db_url, autocommit=True, options=f"-csearch_path={db_schema}") as admin:
+        delete_marker_rows(admin)
+        try:
+            yield
+        finally:
+            delete_marker_rows(admin)
+
+
+@pytest.fixture
+def committed_customers(db_url: str, db_schema: str) -> Callable[[str], int]:
+    """Zählt Kunden mit einer Domain über eine frische Verbindung: sichtbar ist nur, was committet wurde."""
+
+    def _count(domain: str) -> int:
+        with _connect(db_url, options=f"-csearch_path={db_schema}") as other:
+            found = other.execute(
+                "SELECT count(*) FROM customers WHERE domain = %s", (domain,)
+            ).fetchone()
+        assert found is not None
+        return int(found[0])
+
+    return _count
