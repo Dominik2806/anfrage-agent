@@ -452,3 +452,52 @@ def write_connection(database: ConnectionSource | None) -> Iterator[Any]:
         _log_failure(exc)
         # from None: kein __cause__ und unterdrückter Kontext, damit der Text der Ausnahme nirgends mitläuft
         raise ToolError(DATABASE_ERROR) from None
+
+
+# log_activity (F08 Etappe 4b, ADR 0005 Punkt 7). Das einzige INSERT INTO des Pakets steht hier. Alle Werte sind benannte
+# Parameter; fest stehen created_by ('agent', die INSERT-Policy der Schreibrolle verlangt es) und occurred_at (now() der
+# Datenbank: die Tabelle hat dafür keinen Default). Kein amount_eur, kein product_id.
+INSERT_ACTIVITY_SQL = """INSERT INTO activities
+    (customer_id, contact_id, type, occurred_at, subject, summary, created_by)
+VALUES
+    (%(customer_id)s::bigint, %(contact_id)s::bigint, %(activity_type)s::text, now(),
+     %(subject)s::text, %(summary)s::text, 'agent')"""
+
+# domain und email sind UNIQUE: höchstens eine Zeile. Der Kontakt wird immer zusammen mit dem Kunden gesucht.
+FIND_CUSTOMER_ID_SQL = """SELECT id FROM customers WHERE domain = %(domain)s::text"""
+
+FIND_CONTACT_ID_SQL = """SELECT id FROM contacts
+WHERE email = %(email)s::text AND customer_id = %(customer_id)s::bigint"""
+
+
+def find_customer_id(connection: Any, domain: str) -> int | None:
+    """Die interne id des Kunden mit dieser Domain oder None. Nur intern, nie Teil einer Ausgabe."""
+    rows = fetch_all(connection, FIND_CUSTOMER_ID_SQL, {"domain": domain})
+    return int(rows[0]["id"]) if rows else None
+
+
+def find_contact_id(connection: Any, customer_id: int, email: str) -> int | None:
+    """Die interne id des Kontakts mit dieser Adresse bei genau diesem Kunden oder None."""
+    rows = fetch_all(connection, FIND_CONTACT_ID_SQL, {"email": email, "customer_id": customer_id})
+    return int(rows[0]["id"]) if rows else None
+
+
+def insert_activity(
+    connection: Any,
+    customer_id: int,
+    contact_id: int | None,
+    activity_type: str,
+    subject: str,
+    summary: str,
+) -> None:
+    """Legt genau eine Aktivität an: created_by fest 'agent', occurred_at = now() der Datenbank. Gibt nichts zurück."""
+    connection.execute(
+        INSERT_ACTIVITY_SQL,
+        {
+            "customer_id": customer_id,
+            "contact_id": contact_id,
+            "activity_type": activity_type,
+            "subject": subject,
+            "summary": summary,
+        },
+    )

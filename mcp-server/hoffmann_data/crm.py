@@ -1,7 +1,9 @@
-"""Lesende CRM-Abfragen des Datenservice (F07): find_customer.
+"""CRM-Werkzeuge des Datenservice: find_customer (F07, nur lesend) und log_activity (F08, schreibt genau eine Zeile).
 
-Nur Lesen, Werte nur als benannte Parameter. Die Abfragetexte sind feste Konstanten; Eingaben werden nie in
+Werte nur als benannte Parameter. Die Abfragetexte sind feste Konstanten; Eingaben werden nie in
 sie eingesetzt (Test: test_package_sql_rules.py). Die Eingabe prüft limits.py, bevor die Datenbank berührt wird.
+log_activity legt nur eine Aktivität an; Kunde und Kontakt werden gelesen und nie verändert, nichts wird überschrieben
+oder gelöscht. Die SQL-Texte der Schreibseite (das einzige INSERT INTO) stehen in db.py.
 
 Abgleich (immer exakt, ohne Beachtung der Schreibung; Subdomains und Teilnamen treffen nicht):
 - Eingabe mit "@": zuerst der Kontakt über die Adresse (matched_by "email"), sonst der Kunde über die Domain
@@ -20,8 +22,25 @@ from typing import Any, Literal, TypedDict
 
 from mcp.server.mcpserver.exceptions import ToolError
 
-from hoffmann_data.db import ConnectionSource, fetch_all, read_connection
-from hoffmann_data.limits import check_customer_query
+from hoffmann_data.db import (
+    ConnectionSource,
+    fetch_all,
+    find_contact_id,
+    find_customer_id,
+    insert_activity,
+    read_connection,
+    write_connection,
+)
+from hoffmann_data.limits import (
+    CONTACT_NOT_FOUND,
+    CUSTOMER_NOT_FOUND,
+    check_activity_type,
+    check_customer_query,
+    check_domain,
+    check_email,
+    check_subject,
+    check_summary,
+)
 
 AMBIGUOUS_MESSAGE = "Mehrdeutiger Treffer."
 MAX_CONTACTS = 20
@@ -221,3 +240,41 @@ def find_customer(database: ConnectionSource | None, query: Any) -> CustomerResu
         "recent_activities": activities,
     }
     return {"customer": customer, "matched_by": matched_by}
+
+
+class ActivityResult(TypedDict):
+    customer_domain: str
+    type: str
+    logged: bool
+
+
+def log_activity(
+    database: ConnectionSource | None,
+    customer_domain: Any,
+    activity_type: Any,
+    subject: Any,
+    summary: Any,
+    contact_email: Any = None,
+) -> ActivityResult:
+    """Legt eine Aktivität zu einem bekannten Kunden an (F08). Keine interne id im Ergebnis.
+
+    Reihenfolge: Eingaben in Parameterreihenfolge prüfen (None bei contact_email heißt "kein Kontakt", ein leerer
+    Text ist angegeben und ungültig), dann Kunde über die Domain, dann Kontakt über Adresse und Kunde, dann INSERT.
+    Alles in einer Transaktion; Fehler der Datenbank bildet write_connection ab.
+    """
+    domain = check_domain(customer_domain)
+    kind = check_activity_type(activity_type)
+    clean_subject = check_subject(subject)
+    clean_summary = check_summary(summary)
+    email = None if contact_email is None else check_email(contact_email)
+    with write_connection(database) as connection:
+        customer_id = find_customer_id(connection, domain)
+        if customer_id is None:
+            raise ToolError(CUSTOMER_NOT_FOUND)
+        contact_id = None
+        if email is not None:
+            contact_id = find_contact_id(connection, customer_id, email)
+            if contact_id is None:
+                raise ToolError(CONTACT_NOT_FOUND)
+        insert_activity(connection, customer_id, contact_id, kind, clean_subject, clean_summary)
+    return {"customer_domain": domain, "type": kind, "logged": True}
