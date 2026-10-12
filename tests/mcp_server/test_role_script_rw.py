@@ -13,6 +13,7 @@ erst im grünen Schritt.
 import os
 import re
 import uuid
+from collections.abc import Callable
 from typing import Any
 
 import psycopg
@@ -330,7 +331,8 @@ def _snapshot(conn: psycopg.Connection[Any], role: str) -> dict[str, Any]:
     for table in SCHEMA_TABLES:
         for right in TABLE_RIGHTS:
             found = conn.execute(
-                "SELECT has_table_privilege(%s::name, to_regclass(%s::text), %s::text)", (role, table, right)
+                "SELECT has_table_privilege(%s::name, to_regclass(%s::text), %s::text)",
+                (role, table, right),
             ).fetchone()
             assert found is not None
             table_rights[(table, right)] = bool(found[0])
@@ -443,3 +445,130 @@ def test_script_runs_twice_as_a_non_superuser_with_hosting_attributes(
         (rw,),
     ).fetchone()
     assert policies == (2 * len(WRITE_TABLES),)
+
+
+# Mit Datenbank: Die INSERT-Policies beschränken, was die Rolle anlegen darf (ADR 0005, Punkt 7)
+#
+# Die Fälle erfüllen alle Tabellen-CHECKs aus schema.sql (gültiger status, created_by und type, amount_eur NULL).
+# Ein Fehler kann deshalb nur von der Policy kommen: Ein CHECK-Verstoß hätte SQLSTATE 23514 (CheckViolation),
+# und das Tabellenrecht INSERT hat die Rolle.
+
+ALLOWED_ACTIVITY_TYPES = ("inquiry", "complaint", "note")
+
+
+def _count_rows(conn: psycopg.Connection[Any], table: str) -> int:
+    found = conn.execute(
+        sql.SQL("SELECT count(*) FROM {}").format(sql.Identifier(table))
+    ).fetchone()
+    assert found is not None
+    return int(found[0])
+
+
+def _insert_customer(conn: psycopg.Connection[Any], status: str) -> int:
+    suffix = uuid.uuid4().hex[:10]
+    found = conn.execute(
+        "INSERT INTO customers (company_name, domain, industry, country, status) "
+        "VALUES (%s, %s, 'other', 'de', %s) RETURNING id",
+        (f"Richtlinientest {suffix}", f"richtlinientest-{suffix}.example", status),
+    ).fetchone()
+    assert found is not None
+    return int(found[0])
+
+
+def _insert_activity(
+    conn: psycopg.Connection[Any],
+    customer_id: int,
+    activity_type: str,
+    created_by: str,
+    product_id: int | None = None,
+) -> int:
+    found = conn.execute(
+        "INSERT INTO activities "
+        "(customer_id, product_id, type, occurred_at, subject, summary, created_by) "
+        "VALUES (%s, %s, %s, now(), 'Betreff', 'Zusammenfassung', %s) RETURNING id",
+        (customer_id, product_id, activity_type, created_by),
+    ).fetchone()
+    assert found is not None
+    return int(found[0])
+
+
+def _assert_refused(
+    conn: psycopg.Connection[Any], role: str, table: str, action: Callable[[], object]
+) -> None:
+    """`action` läuft unter der Rolle im Savepoint und scheitert mit SQLSTATE 42501; es bleibt keine Zeile zurück.
+
+    Gezählt wird außerhalb von as_role: Der Testbenutzer ist Eigentümer und sieht alle Zeilen.
+    """
+    before = _count_rows(conn, table)
+    with as_role(conn, role):
+        with pytest.raises(errors.InsufficientPrivilege) as info:
+            with conn.transaction():
+                action()
+    assert info.value.sqlstate == "42501"
+    assert _count_rows(conn, table) == before
+
+
+@pytest.mark.parametrize("status", ["existing", "inactive"])
+def test_role_cannot_insert_a_customer_with_a_status_other_than_lead(
+    conn: psycopg.Connection[Any], rw_role: str, status: str
+) -> None:
+    _assert_refused(conn, rw_role, "customers", lambda: _insert_customer(conn, status))
+
+
+@pytest.mark.parametrize("created_by", ["seed", "staff"])
+def test_role_cannot_insert_an_activity_with_a_created_by_other_than_agent(
+    conn: psycopg.Connection[Any], rw_role: str, make: Any, created_by: str
+) -> None:
+    customer = make.customer()
+    _assert_refused(
+        conn,
+        rw_role,
+        "activities",
+        lambda: _insert_activity(conn, customer, "inquiry", created_by),
+    )
+
+
+@pytest.mark.parametrize("activity_type", ["quote", "order", "service"])
+def test_role_cannot_insert_an_activity_with_a_type_outside_the_allowed_three(
+    conn: psycopg.Connection[Any], rw_role: str, make: Any, activity_type: str
+) -> None:
+    customer = make.customer()
+    _assert_refused(
+        conn,
+        rw_role,
+        "activities",
+        lambda: _insert_activity(conn, customer, activity_type, "agent"),
+    )
+
+
+def test_role_cannot_insert_an_activity_with_a_product(
+    conn: psycopg.Connection[Any], rw_role: str, make: Any
+) -> None:
+    customer = make.customer()
+    product = make.product()
+    _assert_refused(
+        conn,
+        rw_role,
+        "activities",
+        lambda: _insert_activity(conn, customer, "inquiry", "agent", product),
+    )
+
+
+def test_role_can_insert_a_customer_with_status_lead(
+    conn: psycopg.Connection[Any], rw_role: str
+) -> None:
+    with as_role(conn, rw_role):
+        new_id = _insert_customer(conn, "lead")
+        found = conn.execute("SELECT count(*) FROM customers WHERE id = %s", (new_id,)).fetchone()
+    assert found == (1,)
+
+
+@pytest.mark.parametrize("activity_type", ALLOWED_ACTIVITY_TYPES)
+def test_role_can_insert_an_activity_as_agent_with_each_allowed_type(
+    conn: psycopg.Connection[Any], rw_role: str, make: Any, activity_type: str
+) -> None:
+    customer = make.customer()
+    with as_role(conn, rw_role):
+        new_id = _insert_activity(conn, customer, activity_type, "agent")
+        found = conn.execute("SELECT count(*) FROM activities WHERE id = %s", (new_id,)).fetchone()
+    assert found == (1,)
