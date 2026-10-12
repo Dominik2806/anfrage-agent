@@ -46,6 +46,28 @@ def render_role_script(name: str) -> str:
     return rendered
 
 
+# Schreibrolle (F08, ADR 0005). Wie oben: Das Skript läuft in Tests unter einem Zufallsnamen. Die feste Zahl der
+# Vorkommen kommt erst, wenn das Skript existiert; bis dahin gilt "mindestens ein Treffer".
+WRITE_ROLE_SCRIPT = ROOT / "db" / "roles" / "data_service_rw.sql"
+WRITE_ROLE_NAME = "data_service_rw"
+
+
+def render_write_role_script(name: str) -> str:
+    """Das Schreibrollen-Skript mit dem Rollennamen `name`. Bricht ab, wenn die Ersetzung nicht sauber greift."""
+    assert ROLE_NAME_PATTERN.fullmatch(name), "ungültiger Rollenname"
+    assert WRITE_ROLE_NAME not in name or name == WRITE_ROLE_NAME, (
+        "Testname darf den Originalnamen nicht enthalten"
+    )
+    text = WRITE_ROLE_SCRIPT.read_text(encoding="utf-8")
+    occurrences = text.count(WRITE_ROLE_NAME)
+    assert occurrences > 0, "der Rollenname steht nicht im Skript"
+    rendered = text.replace(WRITE_ROLE_NAME, name)
+    if name != WRITE_ROLE_NAME:
+        assert WRITE_ROLE_NAME not in rendered, "Originalname nach der Ersetzung übrig"
+        assert rendered.count(name) == occurrences
+    return rendered
+
+
 @contextmanager
 def as_role(conn: Any, role: str) -> Iterator[None]:
     """Führt den Block unter SET LOCAL ROLE aus und setzt die Rolle am Ende zurück."""

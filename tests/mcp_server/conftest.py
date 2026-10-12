@@ -34,6 +34,7 @@ from mcp_testkit import (
     RPC_HEADERS,
     parse_rpc_body,
     render_role_script,
+    render_write_role_script,
 )
 from psycopg import sql
 from psycopg.types.json import Jsonb
@@ -307,6 +308,23 @@ class RoDatabase:
 def ro_database(conn: psycopg.Connection[Any], ro_role: str) -> RoDatabase:
     """Die Test-Verbindung unter der lesenden Rolle aus dem Skript (für die Prüfung der Rolle beim Start)."""
     return RoDatabase(conn, ro_role)
+
+
+@pytest.fixture
+def rw_role(conn: psycopg.Connection[Any]) -> str:
+    """Spielt das Schreibrollen-Skript (F08) unter einem Zufallsnamen ein (in der Test-Transaktion) und gibt ihn zurück."""
+    name = f"rw_test_{uuid.uuid4().hex[:12]}"
+    conn.execute(render_write_role_script(name))
+    return name
+
+
+@pytest.fixture
+def rw_database(conn: psycopg.Connection[Any], rw_role: str) -> RoDatabase:
+    """Die Test-Verbindung unter der Schreibrolle aus dem Skript (für die Prüfung der Rolle beim Start).
+
+    RoDatabase ist rollenneutral: Sie setzt nur SET LOCAL ROLE, die Verbindung bleibt nicht schreibgeschützt.
+    """
+    return RoDatabase(conn, rw_role)
 
 
 def _tool_caller(client: TestClient, headers: dict[str, str]) -> ToolCall:
