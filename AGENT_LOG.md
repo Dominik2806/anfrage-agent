@@ -16,6 +16,62 @@ und welche Konsequenz daraus folgte. Neueste Einträge stehen oben.
 
 ## Einträge
 
+### 2026-10-12 · F08 · Mutationsprüfung von create_lead: alle Mutationen bemerkt, eine Bedingung hängt an einem einzigen Test (Test von Claude Code)
+- **Aufgabe:** Belegen, dass die Tests die Schutzmechanismen von `create_lead` festhalten. Sechs Mutationen, je eine zur Zeit: Der
+  Mensch führte die genannten Tests aus, danach wurde die Mutation zurückgenommen.
+- **Verhalten des Agenten:** Mutiert wurden (1) der Konflikt bei einem Treffer über den Firmennamen allein entfernt, (2) auf „der
+  Name trifft irgendeinen Kunden“ abgeschwächt, (3) der Konflikt bei einer Adresse eines fremden Kunden entfernt, (4) die
+  Wiederholung bei jedem `ToolError` statt nur bei `DUPLICATE_ERROR`, (5) eine zweite Wiederholung, (6) die Nachschlagung wieder in
+  drei Anweisungen aufgelöst.
+- **Fehler:** Kein Fehler im Code. Befund zur Testabdeckung: Die Bedingung „Adresse gehört einem anderen Kunden“ hält nur ein
+  einziger Test fest (`test_a_conflict_gives_the_fixed_message_and_writes_nothing`, die Fälle `adresse-fremd-kunde-bestehend` und
+  `adresse-fremd-kunde-neu`). Ohne die Bedingung fängt die Datenbank den Fehler über `contacts_email_key` ab, nur mit der Meldung
+  `DUPLICATE_ERROR` statt `LEAD_CONFLICT`.
+- **Entdeckung:** Läufe des Menschen. Alle sechs Mutationen bemerkten die Tests, jedes Mal aus dem erwarteten Grund. Die Aufspaltung
+  der Nachschlagung (6) bemerkten die Rennen-Tests in 20 von 20 Läufen (Angabe des Menschen).
+- **Korrektur:** Keine nötig, alle Mutationen sind zurückgenommen.
+- **Konsequenz:** Die Rennen-Tests bleiben probabilistisch: Wer die Nachschlagung ändert, lässt sie mehrfach laufen. Die Bedingung
+  der Adresse nicht lockern, ohne den einen Test anzupassen.
+
+### 2026-10-12 · F08 · DeadlockDetected im Gesamtlauf: Autovacuum auf den Tabellen des Testschemas (Test und Fixture von Claude Code)
+- **Aufgabe:** Tests der Schreibwerkzeuge (Etappe 4b und 4c) mit echter Schreibrolle und echten Commits.
+- **Verhalten des Agenten:** Die Rennen-Tests von `create_lead` schreiben und löschen committete Zeilen in `customers` und
+  `contacts` (dazu zurückgerollte INSERTs der Verlierer). Danach scheiterte im Paar `test_create_lead.py` und
+  `test_search_products.py` etwa jeder dritte Lauf (Angabe des Menschen) beim Setup eines Tests von `test_search_products.py` mit
+  `DeadlockDetected` (AccessExclusiveLock gegen ShareLock auf eine Transaktion).
+- **Fehler:** Vermutete Ursache: Autovacuum und Autoanalyse liefen im Testschema. Ein Server-Arbeiter hielt auf einer Tabelle seine
+  Sperre und wollte `pg_class` fortschreiben; das `ro`-Skript (`GRANT SELECT`, dann `DROP POLICY IF EXISTS`) hielt zur selben Zeit
+  die geänderten Tupel und wollte die Tabellensperre: ein Zyklus. Er trat nur auf, wenn mehrere Rennen-Tests nacheinander liefen
+  (Angabe des Menschen: einzeln nie); die Erklärung dafür, dass erst die Summe der toten Tupel die Schwelle des Autovacuum
+  überschreitet, ist eine Vermutung. Der Ablauf ist aus der Fehlermeldung hergeleitet, das Server-Log mit den beteiligten Befehlen
+  wurde nicht ausgewertet; belegt ist die Wirkung des Fixes.
+- **Entdeckung:** Gesamtlauf des Menschen. Meine erste Suche galt den Rennen-Tests (Threads, Verbindungen, Aufräumen) und fand dort
+  kein Leck. Die Hypothese Autovacuum bestätigte der Mensch mit zwölf Läufen ohne Autovacuum (`ALTER SYSTEM SET autovacuum = off`),
+  alle sauber; ohne die Abschaltung scheiterte etwa jeder dritte Lauf.
+- **Korrektur:** `tests/mcp_server/conftest.py`, Fixture `db_schema`: Für alle Tabellen des Schemas `test_<hex>` (aus `pg_tables`,
+  nicht aus einer festen Liste) `ALTER TABLE … SET (autovacuum_enabled = false)`. Das Anwendungsschema und die Skripte bleiben
+  unberührt.
+- **Konsequenz:** Tests, die committete Zeilen schreiben und Rollen-Skripte im selben Schema ausführen, brauchen im Testschema kein
+  Autovacuum (`mcp-server/CLAUDE.md`). Ob Issue #25 („Deadlock im Test-Setup“, F07) dieselbe Ursache hat, ist nicht geprüft.
+
+### 2026-10-12 · F08 · create_lead: drei getrennte Nachschlagungen ergaben einen falschen Konflikt (Code von Claude Code)
+- **Aufgabe:** `create_lead` mit Dublettenschutz umsetzen (Etappe 4c).
+- **Verhalten des Agenten:** `attempt()` las den Kunden über die Domain, den Kunden über den Firmennamen und den Eigentümer der
+  Adresse mit drei getrennten SELECTs (`find_customer_id`, `find_customer_id_by_name`, `find_contact_owner`). Im Plan stand sogar,
+  drei Abfragen je Versuch kosteten nichts Messbares.
+- **Fehler:** Unter READ COMMITTED sieht jede Anweisung den Stand zu ihrem eigenen Zeitpunkt. Committete ein paralleler Aufruf
+  Kunde und Kontakt zwischen der Domain- und der Namensabfrage, ergab sich „kein Treffer über die Domain, Treffer über den Namen“
+  und damit `LEAD_CONFLICT`, obwohl kein Konflikt vorlag.
+- **Entdeckung:** Zwei der drei Rennen-Tests (`test_eight_concurrent_calls_for_the_same_new_lead_…` und
+  `test_eight_concurrent_calls_with_different_contacts_…`) scheiterten im Lauf des Menschen mit `LEAD_CONFLICT`. Die Tests waren
+  für genau das geschrieben; der Fehler stand im Code, nicht im Test.
+- **Korrektur:** Eine Anweisung mit drei skalaren Unterabfragen (`FIND_LEAD_MATCHES_SQL`, `db.find_lead_matches`); die zwei nun
+  ungenutzten Funktionen sind entfernt. ADR 0005, Punkt 5a, nennt die Gründe und die verworfenen Alternativen (REPEATABLE READ im
+  gemeinsamen Verbindungsmanager, Advisory-Lock je Domain). Die Mutationsprüfung (Eintrag oben) belegt, dass die Tests die
+  Aufspaltung bemerken.
+- **Konsequenz:** Neue Regel in `mcp-server/CLAUDE.md`: Nachschlagungen, deren Ergebnisse gemeinsam über einen Konflikt entscheiden,
+  laufen in einer SQL-Anweisung. Bei Plänen mit mehreren Abfragen vor einer Entscheidung die Isolationsstufe ausdrücklich prüfen.
+
 ### 2026-10-09 · F07 · Rollen-Skript nur als Superuser getestet, auf Supabase abgebrochen (Code und Test von Claude Code)
 - **Aufgabe:** Rollen-Skript `db/roles/data_service_ro.sql` und seine Tests schreiben (Etappe 1), dazu die Anleitung zum Einspielen
   (Supabase SQL-Editor oder `psql`).

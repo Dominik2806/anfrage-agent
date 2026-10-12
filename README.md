@@ -28,7 +28,7 @@ Voraussetzung: Python 3.13 und `pip install -r requirements-dev.txt`.
 Einzelheiten: [Datenmodell, Abschnitt 4](docs/DATENMODELL.md).
 
 ## Datenservice
-Der Datenservice „hoffmann-data“ (`mcp-server/`) liefert dem Agenten Katalog und CRM, nur lesend. Voraussetzung ist eine befüllte Datenbank.
+Der Datenservice „hoffmann-data“ (`mcp-server/`) liefert dem Agenten Katalog und CRM zum Lesen (Endpunkt `/mcp`). Zwei Schreibwerkzeuge legen Leads und Aktivitäten an (Endpunkt `/mcp-write`, eigenes Token, eigene Rolle): Sie legen nur an und überschreiben oder löschen nichts. Voraussetzung ist eine befüllte Datenbank.
 
 1. Das Skript `db/roles/data_service_ro.sql` in der Datenbank ausführen. Es legt die Nur-Lese-Rolle `data_service_ro` an, ohne Passwort. Nach jedem `python -m db.seed` muss es erneut ausgeführt werden.
 2. Das Passwort der Rolle getrennt setzen: `ALTER ROLE data_service_ro PASSWORD '<aus dem Passwortmanager>';`
@@ -36,6 +36,12 @@ Der Datenservice „hoffmann-data“ (`mcp-server/`) liefert dem Agenten Katalog
 4. `pip install -r mcp-server/requirements.txt`, dann aus dem Ordner `mcp-server` `python -m hoffmann_data` (unter Windows `..\.venv\Scripts\python.exe -m hoffmann_data`).
 
 Beim Start prüft der Datenservice die Rolle. Darf sie mehr als lesen, endet der Start mit Exit-Code 1, und auf stderr stehen nur die Kurzbezeichnungen der gescheiterten Prüfungen (zum Beispiel `schreibrecht:INSERT:products`), nie URL oder Zugangsdaten. Einzelheiten: [mcp-server/README.md](mcp-server/README.md).
+
+**Schreibweg (optional):**
+1. Das Skript `db/roles/data_service_rw.sql` in der Datenbank ausführen. Es legt die Rolle `data_service_rw` an (nur `SELECT` und `INSERT` auf `customers`, `contacts` und `activities`), ohne Passwort. Auch dieses Skript nach jedem `python -m db.seed` erneut ausführen.
+2. Das Passwort getrennt setzen: `ALTER ROLE data_service_rw PASSWORD '<aus dem Passwortmanager>';`
+3. `MCP_SERVER_WRITE_DATABASE_URL` und `MCP_SERVER_WRITE_TOKEN` setzen (beide oder keine; das Schreib-Token muss sich vom Lese-Token unterscheiden und gehört nur dem Freigabeweg, nicht dem Agenten). Die Namen stehen in `.env.example`.
+4. Start wie oben. Der Datenservice prüft dann auch die Schreibrolle (Meldungen auf stderr mit dem Präfix `Schreibweg:`) und bedient `/mcp-write` zusätzlich zu `/mcp`.
 
 ## Dokumente
 - [Projektauftrag](docs/AUFTRAG.md)

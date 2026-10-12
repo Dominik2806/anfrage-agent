@@ -58,4 +58,7 @@ F10 meldet bei länger laufenden Aufrufen den Fortschritt (Auftrag 6.4) und brau
   `max_sessions` und `session_idle_timeout` nicht. Die Entscheidung (Begrenzung, Sperre) fällt in F13.
 - Offen für F08: getrennte Token für Lesen und Schreiben sowie ein technischer Mechanismus für „nur nach
   Freigabe“ bei `create_lead` (heute nur Beschreibungstext).
+  Nachtrag (F08): Entschieden in ADR 0005. Es gibt ein Lese-Token (`/mcp`) und ein Schreib-Token (`/mcp-write`), je in einer
+  eigenen Middleware nach dieser ADR. „Nur nach Freigabe“ gilt als Übergang durch die Trennung der Geheimnisse: Das Schreib-Token
+  hat nur der Freigabeweg. Der Satz „Es gibt ein einziges, festes Token“ oben beschreibt den Stand von F06.
 - Spätere Umstellung auf OAuth bleibt möglich, indem die Middleware durch `AuthSettings` ersetzt wird.
