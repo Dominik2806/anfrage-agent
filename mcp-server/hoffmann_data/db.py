@@ -13,7 +13,7 @@ von hier (Test: test_mcp_no_leak.py). Der Dienst liest nur (Auftrag 5.1):
 
 import logging
 from collections.abc import Iterator, Mapping, Sequence
-from contextlib import AbstractContextManager, contextmanager
+from contextlib import AbstractContextManager, contextmanager, suppress
 from typing import Any, Protocol
 
 import psycopg
@@ -372,3 +372,83 @@ def verify_write_role(database: ConnectionSource) -> None:
     # Außerhalb des try: Das Ergebnis der Prüfung wird weder gefangen noch ein zweites Mal geloggt
     if failed:
         raise RoleCheckError(failed)
+
+
+# Schreibweg (F08 Etappe 2, ADR 0005 Punkt 8)
+
+DUPLICATE_ERROR = "Der Eintrag existiert bereits."
+
+
+def _rollback_quietly(connection: Any) -> None:
+    """Rollt zurück und verschluckt einen Fehler dabei: Er darf die ursprüngliche Ausnahme nicht verdecken."""
+    with suppress(Exception):
+        connection.rollback()
+
+
+class WriteDatabase:
+    """Verbindungsquelle für den Schreibweg. Der Konstruktor verbindet nicht.
+
+    Eigenständig und getrennt von Database (der Lesepfad bleibt unberührt). Jeder Aufruf ist eine Transaktion
+    auf einer eigenen Verbindung (kein Pool): Das Ende des Blocks ohne Ausnahme ist der Commit, jede Ausnahme im
+    Block ist ein Rollback. Die Verbindung ist nicht schreibgeschützt und hat ein Zeitlimit von 5 Sekunden je
+    Abfrage.
+    """
+
+    def __init__(self, url: str, **connect_kwargs: Any) -> None:
+        self._url = url
+        self._connect_kwargs = connect_kwargs
+
+    def __repr__(self) -> str:
+        # Keine URL: Sie enthält Benutzer, Passwort und Host
+        return "WriteDatabase()"
+
+    @contextmanager
+    def connection(self) -> Iterator[psycopg.Connection[Any]]:
+        """Öffnet eine eigene Verbindung, committet am Ende, rollt bei jeder Ausnahme zurück und schließt sie."""
+        # Unsere Werte stehen zuletzt und gewinnen gegen connect_kwargs und gegen Parameter in der URL
+        options = {
+            **self._connect_kwargs,
+            "connect_timeout": CONNECT_TIMEOUT_SECONDS,
+            "prepare_threshold": None,
+        }
+        # Scheitert das Verbinden, gibt es nichts zu schließen
+        connection = psycopg.connect(self._url, **options)
+        try:
+            # Beginnt die Transaktion; SET LOCAL gilt bis zum Commit oder Rollback dieses einen Aufrufs
+            connection.execute(STATEMENT_TIMEOUT_SQL)
+            yield connection
+            # Im try: Scheitert der Commit, rollt der Zweig unten zurück
+            connection.commit()
+        except BaseException:
+            _rollback_quietly(connection)
+            raise
+        finally:
+            connection.close()
+
+
+@contextmanager
+def write_connection(database: ConnectionSource | None) -> Iterator[Any]:
+    """Verbindung für einen schreibenden Werkzeugaufruf (Gegenstück zu read_connection).
+
+    - Ohne Datenbank: ToolError(NOT_CONFIGURED), nie Scheindaten.
+    - Ein ToolError aus dem Block (z. B. ungültige Eingabe) läuft unverändert durch; die Datenbank hat ihn
+      gesehen und zurückgerollt.
+    - Eine UniqueViolation (SQLSTATE 23505) wird zu ToolError(DUPLICATE_ERROR).
+    - Jeder andere Fehler (psycopg.Error, unerwartete Ausnahme, auch beim Verbinden) wird zu
+      ToolError(DATABASE_ERROR). Beides wird einmal geloggt (Klasse und SQLSTATE, nie der Text) und ohne Ursache
+      weitergegeben.
+    """
+    if database is None:
+        raise ToolError(NOT_CONFIGURED)
+    try:
+        with database.connection() as connection:
+            yield connection
+    except ToolError:
+        raise
+    except psycopg.errors.UniqueViolation as exc:
+        _log_failure(exc)
+        raise ToolError(DUPLICATE_ERROR) from None
+    except Exception as exc:  # noqa: BLE001 - Absicht: Auch unerwartete Ausnahmen dürfen keinen Text nach außen tragen
+        _log_failure(exc)
+        # from None: kein __cause__ und unterdrückter Kontext, damit der Text der Ausnahme nirgends mitläuft
+        raise ToolError(DATABASE_ERROR) from None

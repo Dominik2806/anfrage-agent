@@ -35,6 +35,16 @@ def main(env: Mapping[str, str] | None = None) -> None:
         print(exc, file=sys.stderr)
         raise SystemExit(1) from None
 
+    # Der Schreibweg (ADR 0005) wird nur geprüft, wenn er konfiguriert ist: Lese-Prüfung zuerst, dann diese.
+    # Die Prüfung bekommt eine schreibgeschützte Database (sie liest nur). Der Präfix trennt die Kurzbezeichnungen
+    # von denen der Lese-Prüfung. Kein Schalter.
+    if config.write_enabled:
+        try:
+            db.verify_write_role(db.Database(config.write_database_url))
+        except db.RoleCheckError as exc:
+            print(f"Schreibweg: {exc}", file=sys.stderr)
+            raise SystemExit(1) from None
+
     # Kein Zugriffsprotokoll: Es würde Pfad und Query jeder Anfrage schreiben, auch einer mit falsch
     # platziertem Token.
     uvicorn.run(create_app(config), host=config.host, port=config.port, access_log=False)
