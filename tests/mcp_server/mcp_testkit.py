@@ -325,7 +325,8 @@ def delete_marker_rows(conn: Any, pattern: str = f"{ROW_MARKER}-%") -> None:
 
 # Zwei Pfade, zwei Token, Pfadweiche (F08 Etappe 3, ADR 0005 Punkte 3 und 4)
 WRITE_PATH = "/mcp-write"
-# Seit F08 liegen create_lead und log_activity auf WRITE_PATH (bis Etappe 4 als Platzhalter), nicht mehr auf MCP_PATH
+# Seit F08 liegen create_lead und log_activity auf WRITE_PATH, nicht mehr auf MCP_PATH. log_activity ist seit
+# Etappe 4b kein Platzhalter mehr (siehe PLACEHOLDER_WRITE_TOOLS weiter unten); create_lead bleibt einer.
 WRITE_TOOLS = {"create_lead", "log_activity"}
 
 
@@ -419,3 +420,112 @@ def fake_lifespan(name: str, events: list[str], fail_on: str | None = None) -> A
                 raise RuntimeError("geheimtext")
 
     return factory
+
+
+# log_activity (F08 Etappe 4b): create_lead bleibt Platzhalter, log_activity ist ein echtes Werkzeug
+PLACEHOLDER_WRITE_TOOLS = {"create_lead"}
+
+
+class CountingDatabase:
+    """ConnectionSource, die nie benutzt werden darf: Jeder Zugriff wird gezählt und wirft AssertionError.
+
+    `calls == 0` belegt, dass ein Aufruf die Datenbank nicht berührt hat (z. B. weil die Eingabeprüfung vorher abwies).
+    """
+
+    def __init__(self) -> None:
+        self.calls = 0
+
+    @contextmanager
+    def connection(self) -> Iterator[Any]:
+        self.calls += 1
+        raise AssertionError("Datenbank berührt")
+        yield  # pragma: no cover - macht die Funktion zum Generator
+
+
+class ExplodingConnection:
+    """Jeder Zugriff auf die Verbindung (execute, cursor, ...) wirft die übergebene Ausnahme."""
+
+    def __init__(self, error: BaseException) -> None:
+        self._error = error
+
+    def __getattr__(self, name: str) -> Any:
+        raise self._error
+
+
+class ExplodingDatabase:
+    """ConnectionSource, deren Verbindung bei jedem Zugriff die übergebene Ausnahme wirft."""
+
+    def __init__(self, error: BaseException) -> None:
+        self._error = error
+
+    @contextmanager
+    def connection(self) -> Iterator[Any]:
+        yield ExplodingConnection(self._error)
+
+
+def _statement_text(query: Any) -> str:
+    if isinstance(query, str):
+        return query
+    if isinstance(query, bytes):
+        return query.decode("utf-8")
+    return str(query.as_string())
+
+
+class _RecordedCursor:
+    def __init__(self, inner: Any, record: Any) -> None:
+        self._inner = inner
+        self._record = record
+
+    def __enter__(self) -> "_RecordedCursor":
+        return self
+
+    def __exit__(self, *exc_info: object) -> None:
+        self._inner.close()
+
+    def execute(self, query: Any, params: Any = None, **kwargs: Any) -> "_RecordedCursor":
+        self._inner.execute(query, params, **kwargs)
+        self._record(_statement_text(query), params)
+        return self
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._inner, name)
+
+
+class _RecordedConnection:
+    def __init__(self, inner: Any, record: Any) -> None:
+        self._inner = inner
+        self._record = record
+
+    def execute(self, query: Any, params: Any = None, **kwargs: Any) -> Any:
+        result = self._inner.execute(query, params, **kwargs)
+        self._record(_statement_text(query), params)
+        return result
+
+    def cursor(self, *args: Any, **kwargs: Any) -> _RecordedCursor:
+        return _RecordedCursor(self._inner.cursor(*args, **kwargs), self._record)
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._inner, name)
+
+
+class StatementRecorder:
+    """Umhüllt eine ConnectionSource und zeichnet (SQL-Text, Parameter) jedes ausgeführten Befehls auf.
+
+    `on_execute(text, params)` (optional) läuft **nach** jedem Befehl, auf dem Weg des Aufrufers: So lässt sich
+    prüfen, was eine zweite Verbindung mitten im Aufruf sieht, oder ein Fehler nach einem Befehl einspritzen.
+    """
+
+    def __init__(self, inner: Any, on_execute: Any = None) -> None:
+        self._inner = inner
+        self._on_execute = on_execute
+        self.statements: list[tuple[str, Any]] = []
+
+    def _record(self, text: str, params: Any) -> None:
+        self.statements.append((text, params))
+        if self._on_execute is not None:
+            self._on_execute(text, params)
+
+    @contextmanager
+    def connection(self) -> Iterator[_RecordedConnection]:
+        with self._inner.connection() as connection:
+            yield _RecordedConnection(connection, self._record)

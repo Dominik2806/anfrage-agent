@@ -37,6 +37,7 @@ from mcp_testkit import (
     WRITE_TOKEN_NAME,
     WRITE_URL_NAME,
     delete_marker_rows,
+    marker_row,
     parse_rpc_body,
     render_role_script,
     render_write_role_script,
@@ -514,8 +515,9 @@ def committed_customers(db_url: str, db_schema: str) -> Callable[[str], int]:
 
 
 # Fixtures für den Doppelbetrieb (F08 Etappe 3): Lese-App auf /mcp, Schreib-App auf /mcp-write, davor die Weiche.
-# Beide Datenbanken werden aus der Config gebaut, aber nie verbunden (die Schreib-Werkzeuge sind Platzhalter, die
-# Tests rufen keine Lese-Werkzeuge mit Datenbank auf). Ohne Schreibkonfiguration gelten weiter `app` und `client`.
+# Beide Datenbanken werden aus der Config gebaut, aber nie verbunden (create_lead ist Platzhalter, die Tests rufen
+# keine Lese-Werkzeuge mit Datenbank auf; log_activity mit echter Datenbank: Fixtures weiter unten).
+# Ohne Schreibkonfiguration gelten weiter `app` und `client`.
 
 
 @pytest.fixture
@@ -584,3 +586,133 @@ def rpc_write(
         return rpc_on(WRITE_PATH, write_headers, method, params)
 
     return _call
+
+
+# Fixtures für log_activity (F08 Etappe 4b): echte Rolle, echte Verbindungen, echter Commit.
+# Die vorhandene Fixture rw_role legt die Rolle in einer zurückgerollten Transaktion an und taugt nicht für getrennte
+# Verbindungen. committed_rw_role legt sie fest (eine Transaktion) an und räumt sie wieder ab. Erst wird ein Rest eines
+# abgestürzten Laufs entfernt, dann angelegt (wie marker_cleanup); bleibt nach einem Absturz etwas stehen, entfernt es
+# der nächste Lauf. Die Rolle hat nur die Rechte des Skripts an den Tabellen des Testschemas.
+
+RW_FIXTURE_ROLE = "rw_test_fixture"
+ACTIVITY_SELECT = (
+    "SELECT id, customer_id, contact_id, product_id, type, occurred_at, subject, summary, amount_eur, created_by "
+    "FROM activities WHERE customer_id = (SELECT id FROM customers WHERE domain = %s) ORDER BY id"
+)
+
+
+def _drop_fixture_role(db_url: str, schema: str) -> None:
+    """Entfernt die Rolle samt Rechten und Policies in dieser Datenbank, falls sie existiert."""
+    identifier = sql.Identifier(RW_FIXTURE_ROLE)
+    with _connect(db_url, autocommit=True, options=f"-csearch_path={schema}") as admin_connection:
+        found = admin_connection.execute(
+            "SELECT 1 FROM pg_roles WHERE rolname = %s", (RW_FIXTURE_ROLE,)
+        ).fetchone()
+        if found is not None:
+            admin_connection.execute(sql.SQL("DROP OWNED BY {}").format(identifier))
+            admin_connection.execute(sql.SQL("DROP ROLE {}").format(identifier))
+
+
+@pytest.fixture(scope="module")
+def committed_rw_role(db_url: str, db_schema: str) -> Iterator[tuple[str, str]]:
+    """Name und Passwort der festen Schreibrolle (Skript db/roles/data_service_rw.sql, eine Transaktion, committet)."""
+    password = secrets.token_urlsafe(24)
+    _drop_fixture_role(
+        db_url, db_schema
+    )  # erst aufräumen (Rest eines abgestürzten Laufs), dann anlegen
+    try:
+        with _connect(db_url, options=f"-csearch_path={db_schema}") as setup:
+            setup.execute(render_write_role_script(RW_FIXTURE_ROLE))
+            setup.execute(
+                sql.SQL("ALTER ROLE {} PASSWORD {}").format(
+                    sql.Identifier(RW_FIXTURE_ROLE), sql.Literal(password)
+                )
+            )
+        yield RW_FIXTURE_ROLE, password
+    finally:
+        _drop_fixture_role(db_url, db_schema)
+
+
+@pytest.fixture
+def rw_write_database(db_url: str, db_schema: str, committed_rw_role: tuple[str, str]) -> Any:
+    """Eine echte WriteDatabase, angemeldet als die Schreibrolle (kein Superuser, RLS gilt). Commit wirkt."""
+    from hoffmann_data.db import WriteDatabase
+
+    name, password = committed_rw_role
+    return WriteDatabase(db_url, user=name, password=password, options=f"-csearch_path={db_schema}")
+
+
+@pytest.fixture
+def admin(db_url: str, db_schema: str) -> Iterator[psycopg.Connection[Any]]:
+    """Verbindung des Testbenutzers (Eigentümer der Tabellen, sieht alle Zeilen; nicht die Schreibrolle), autocommit."""
+    with _connect(db_url, autocommit=True, options=f"-csearch_path={db_schema}") as connection:
+        yield connection
+
+
+@pytest.fixture
+def make_customer(
+    admin: psycopg.Connection[Any], marker_cleanup: None
+) -> Callable[..., tuple[str, str | None]]:
+    """Legt einen Marker-Kunden (und optional einen Kontakt in derselben Domain) committet an: (Domain, E-Mail)."""
+
+    def _make(status: str = "existing", contact: bool = True) -> tuple[str, str | None]:
+        row = marker_row()
+        admin.execute(
+            "INSERT INTO customers (company_name, domain, industry, country, status) "
+            "VALUES (%s, %s, 'other', 'de', %s)",
+            (row["company_name"], row["domain"], status),
+        )
+        if not contact:
+            return row["domain"], None
+        found = admin.execute(
+            "SELECT id FROM customers WHERE domain = %s", (row["domain"],)
+        ).fetchone()
+        assert found is not None
+        admin.execute(
+            "INSERT INTO contacts (customer_id, first_name, last_name, email, language) "
+            "VALUES (%s, 'Erika', 'Muster', %s, 'de')",
+            (found[0], row["email"]),
+        )
+        return row["domain"], row["email"]
+
+    return _make
+
+
+@pytest.fixture
+def activity_rows(admin: psycopg.Connection[Any]) -> Callable[[str], list[dict[str, Any]]]:
+    """Alle Aktivitäten des Kunden mit dieser Domain als Dicts (über die Verbindung des Eigentümers)."""
+    from psycopg.rows import dict_row
+
+    def _rows(domain: str) -> list[dict[str, Any]]:
+        with admin.cursor(row_factory=dict_row) as cursor:
+            cursor.execute(ACTIVITY_SELECT, (domain,))
+            return cursor.fetchall()
+
+    return _rows
+
+
+@pytest.fixture
+def db_clock(admin: psycopg.Connection[Any]) -> Callable[[], Any]:
+    """Die Uhr der Datenbank (clock_timestamp()), nicht die des Tests."""
+
+    def _now() -> Any:
+        found = admin.execute("SELECT clock_timestamp()").fetchone()
+        assert found is not None
+        return found[0]
+
+    return _now
+
+
+@pytest.fixture
+def e2e_client_for(write_env: dict[str, str]) -> Iterator[Callable[[Any], TestClient]]:
+    """Fabrik: baut die App mit Schreibweg und der übergebenen write_database und gibt den TestClient zurück."""
+    from hoffmann_data.config import load_config
+    from hoffmann_data.server import create_app
+
+    with ExitStack() as stack:
+
+        def _for(write_database: Any) -> TestClient:
+            app = create_app(load_config(write_env), write_database=write_database)
+            return stack.enter_context(TestClient(app, base_url=BASE_URL))
+
+        yield _for

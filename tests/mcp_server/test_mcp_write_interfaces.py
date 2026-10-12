@@ -2,7 +2,8 @@
 
 Festlegungen:
 - /mcp (Lese-Token) listet drei Lese-Werkzeuge, beide Resources und den Prompt; /mcp-write (Schreib-Token) listet nur
-  create_lead und log_activity, beide bis Etappe 4 Platzhalter (fester Fehler "noch nicht implementiert").
+  create_lead und log_activity. create_lead ist noch Platzhalter (fester Fehler "noch nicht implementiert");
+  log_activity ist seit Etappe 4b ein echtes Werkzeug (Verhalten: test_log_activity.py).
 - Jedes Werkzeug ist auf dem anderen Pfad unbekannt (Ergebnis mit isError, kein Protokollfehler, nie der Platzhalterfehler
   und nie ein Datenbankzugriff). Der Schreib-Server hat keine Resources und keinen Prompt.
 - Auslegung von F06 ("listet seine Schnittstellen auf", ADR 0005, ADR-Eintrag folgt): Jeder Pfad listet seine
@@ -21,6 +22,7 @@ from typing import Any
 import pytest
 from mcp_testkit import (
     NOT_IMPLEMENTED,
+    PLACEHOLDER_WRITE_TOOLS,
     PROMPT_NAMES,
     READ_TOOLS,
     RESOURCE_URIS,
@@ -139,10 +141,12 @@ def test_an_unknown_tool_on_the_write_path_is_a_tool_error_result(rpc_write: Rpc
     assert NOT_IMPLEMENTED not in json.dumps(body, ensure_ascii=False)
 
 
-# Die Schreib-Werkzeuge (Platzhalter bis Etappe 4); zogen von test_mcp_interfaces.py hierher um
+# Die Platzhalter unter den Schreib-Werkzeugen (nur create_lead); zogen von test_mcp_interfaces.py hierher um.
+# log_activity ist seit Etappe 4b kein Platzhalter mehr: Fehlerfall, Beschreibung und kein Echo stehen für dieses Werkzeug
+# in test_log_activity.py (Ende zu Ende, Beschreibung, Kein Echo).
 
 
-@pytest.mark.parametrize("tool", sorted(WRITE_TOOLS))
+@pytest.mark.parametrize("tool", sorted(PLACEHOLDER_WRITE_TOOLS))
 def test_each_write_tool_placeholder_returns_an_error_not_data(rpc_write: Rpc, tool: str) -> None:
     result = rpc_write("tools/call", {"name": tool, "arguments": {}})["result"]
     assert result["isError"] is True
@@ -150,15 +154,15 @@ def test_each_write_tool_placeholder_returns_an_error_not_data(rpc_write: Rpc, t
     assert not result.get("structuredContent")
 
 
-@pytest.mark.parametrize("tool", sorted(WRITE_TOOLS))
+@pytest.mark.parametrize("tool", sorted(PLACEHOLDER_WRITE_TOOLS))
 def test_the_write_tools_are_described_as_placeholders(rpc_write: Rpc, tool: str) -> None:
-    """create_lead und log_activity bekommen ihr Verhalten in Etappe 4; bis dahin sagt die Beschreibung Platzhalter."""
+    """create_lead bekommt sein Verhalten in einer späteren Etappe; bis dahin sagt die Beschreibung Platzhalter."""
     description = _tools(rpc_write)[tool]["description"]
     assert description.strip()
     assert "platzhalter" in description.lower()
 
 
-@pytest.mark.parametrize("tool", sorted(WRITE_TOOLS))
+@pytest.mark.parametrize("tool", sorted(PLACEHOLDER_WRITE_TOOLS))
 def test_the_placeholder_error_does_not_echo_arguments(rpc_write: Rpc, tool: str) -> None:
     """Der Platzhalterfehler gibt keine Eingabewerte aus (Kundentext ist Daten, kein Echo)."""
     body = rpc_write("tools/call", {"name": tool, "arguments": {"query": "GEHEIM-4711"}})
