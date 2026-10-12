@@ -249,3 +249,126 @@ def verify_read_only_role(database: ConnectionSource) -> None:
     # Außerhalb des try: Das Ergebnis der Prüfung wird weder gefangen noch ein zweites Mal geloggt
     if failed:
         raise RoleCheckError(failed)
+
+
+# Startprüfung der Schreibrolle (F08, ADR 0005)
+
+# Die Schreibrolle (db/roles/data_service_rw.sql) darf auf den ersten drei Tabellen genau lesen und anlegen,
+# auf den letzten drei nichts. Die Reihenfolge ist die der Abfrage und der Meldung tabelle-fehlt.
+WRITABLE_TABLES = ("customers", "contacts", "activities")
+FORBIDDEN_TABLES = ("products", "product_fits", "discount_rules")
+WRITE_CHECKED_TABLES = WRITABLE_TABLES + FORBIDDEN_TABLES
+# Unerlaubte Rechte: (Recht, Spalte aus WRITE_TABLES_SQL), in der Reihenfolge der Ausgabe. Auf den
+# Schreibtabellen ist INSERT erlaubt (und Pflicht), auf den Fremdtabellen ist jedes Recht unerlaubt.
+_EXTRA_WRITE_CHECKS = (
+    (UPDATE_RIGHT, "any_update"),
+    (DELETE_RIGHT, "can_delete"),
+    (TRUNCATE_RIGHT, "can_truncate"),
+)
+_FORBIDDEN_WRITE_CHECKS = ((INSERT_RIGHT, "any_insert"), *_EXTRA_WRITE_CHECKS)
+
+# Eine Zeile je Tabelle in der Reihenfolge von WRITE_CHECKED_TABLES. Pflichtrechte (can_select, can_insert) zählen
+# nur als Tabellenrecht, unerlaubte Rechte (any_*) auch als Spaltenrecht. Die Rechtenamen kommen nur als Parameter.
+WRITE_TABLES_SQL = """SELECT
+    t.table_name,
+    to_regclass(t.table_name) IS NOT NULL AS present,
+    COALESCE(
+        has_table_privilege(current_user, to_regclass(t.table_name), %(priv_select)s::text), false
+    ) AS can_select,
+    COALESCE(
+        has_any_column_privilege(current_user, to_regclass(t.table_name), %(priv_select)s::text), false
+    ) AS any_select,
+    COALESCE(
+        has_table_privilege(current_user, to_regclass(t.table_name), %(priv_insert)s::text), false
+    ) AS can_insert,
+    COALESCE(
+        has_any_column_privilege(current_user, to_regclass(t.table_name), %(priv_insert)s::text), false
+    ) AS any_insert,
+    COALESCE(
+        has_any_column_privilege(current_user, to_regclass(t.table_name), %(priv_update)s::text), false
+    ) AS any_update,
+    COALESCE(
+        has_table_privilege(current_user, to_regclass(t.table_name), %(priv_delete)s::text), false
+    ) AS can_delete,
+    COALESCE(
+        has_table_privilege(current_user, to_regclass(t.table_name), %(priv_truncate)s::text), false
+    ) AS can_truncate
+FROM unnest(%(tables)s::text[]) WITH ORDINALITY AS t(table_name, ord)
+ORDER BY t.ord"""
+
+
+def _failed_write_checks(
+    role_rows: list[dict[str, Any]], table_rows: list[dict[str, Any]]
+) -> list[str]:
+    """Die Kurzbezeichnungen der gescheiterten Prüfungen der Schreibrolle in fester Reihenfolge.
+
+    1 Superuser, 2 BYPASSRLS, 3 unerlaubte Rechte auf den Schreibtabellen, 4 jedes Recht auf den Fremdtabellen
+    (zuerst Lesen, dann Schreibrechte), 5 fehlendes SELECT, danach fehlendes INSERT auf den Schreibtabellen,
+    6 CREATE im Schema, 7 fehlende Tabellen. Eine fehlende Tabelle erscheint nur unter 7.
+    """
+    role = role_rows[0]
+    rows = {row["table_name"]: row for row in table_rows}
+    writable = [rows[name] for name in WRITABLE_TABLES if rows[name]["present"]]
+    forbidden = [rows[name] for name in FORBIDDEN_TABLES if rows[name]["present"]]
+    failed: list[str] = []
+    if role["rolsuper"]:
+        failed.append(SUPERUSER_FAILURE)
+    if role["rolbypassrls"]:
+        failed.append(BYPASS_RLS_FAILURE)
+    for row in writable:
+        for right, column in _EXTRA_WRITE_CHECKS:
+            if row[column]:
+                failed.append(f"schreibrecht:{right}:{row['table_name']}")
+    for row in forbidden:
+        if row["any_select"]:
+            failed.append(f"lesen-unerlaubt:{row['table_name']}")
+        for right, column in _FORBIDDEN_WRITE_CHECKS:
+            if row[column]:
+                failed.append(f"schreibrecht:{right}:{row['table_name']}")
+    for row in writable:
+        if not row["can_select"]:
+            failed.append(NO_SELECT_FAILURES[row["table_name"]])
+    for row in writable:
+        if not row["can_insert"]:
+            failed.append(f"fehlendes-recht:{INSERT_RIGHT}:{row['table_name']}")
+    if role["can_create"]:
+        failed.append(CREATE_FAILURE)
+    for row in table_rows:
+        if not row["present"]:
+            failed.append(f"tabelle-fehlt:{row['table_name']}")
+    return failed
+
+
+def verify_write_role(database: ConnectionSource) -> None:
+    """Prüft beim Start, dass die Rolle der Verbindung nur anlegen und lesen darf. Wirft RoleCheckError, sonst None.
+
+    Prüfungen: 1 kein Superuser, 2 kein BYPASSRLS, 3 auf customers, contacts, activities kein UPDATE, DELETE,
+    TRUNCATE (UPDATE auch nicht als Spaltenrecht), 4 auf products, product_fits, discount_rules gar kein Recht
+    (auch nicht als Spaltenrecht), 5 SELECT und INSERT auf den drei Schreibtabellen, 6 kein CREATE im aktuellen
+    Schema, 7 alle sechs Tabellen existieren. Geprüft werden nur Rechte, nicht die Bedingungen der Policies.
+    Nur lesende Abfragen, genau eine Verbindung. Scheitert die Verbindung oder eine Abfrage, steht im Fehler nur
+    die Kurzbezeichnung `datenbankfehler`; geloggt wird genau einmal Klasse und SQLSTATE.
+    """
+    try:
+        with database.connection() as connection:
+            role_rows = fetch_all(connection, ROLE_SQL, {"priv_create": CREATE_RIGHT})
+            table_rows = fetch_all(
+                connection,
+                WRITE_TABLES_SQL,
+                {
+                    "tables": list(WRITE_CHECKED_TABLES),
+                    "priv_select": SELECT_RIGHT,
+                    "priv_insert": INSERT_RIGHT,
+                    "priv_update": UPDATE_RIGHT,
+                    "priv_delete": DELETE_RIGHT,
+                    "priv_truncate": TRUNCATE_RIGHT,
+                },
+            )
+        failed = _failed_write_checks(role_rows, table_rows)
+    except Exception as exc:  # noqa: BLE001 - Absicht: Auch Unerwartetes darf keinen Text nach außen tragen
+        _log_failure(exc)
+        # from None: kein __cause__, der Kontext ist unterdrückt
+        raise RoleCheckError((DATABASE_FAILURE,)) from None
+    # Außerhalb des try: Das Ergebnis der Prüfung wird weder gefangen noch ein zweites Mal geloggt
+    if failed:
+        raise RoleCheckError(failed)
