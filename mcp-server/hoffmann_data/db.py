@@ -454,7 +454,7 @@ def write_connection(database: ConnectionSource | None) -> Iterator[Any]:
         raise ToolError(DATABASE_ERROR) from None
 
 
-# log_activity (F08 Etappe 4b, ADR 0005 Punkt 7). Das einzige INSERT INTO des Pakets steht hier. Alle Werte sind benannte
+# log_activity (F08 Etappe 4b, ADR 0005 Punkt 7). Alle INSERT INTO des Pakets stehen in db.py. Alle Werte sind benannte
 # Parameter; fest stehen created_by ('agent', die INSERT-Policy der Schreibrolle verlangt es) und occurred_at (now() der
 # Datenbank: die Tabelle hat dafür keinen Default). Kein amount_eur, kein product_id.
 INSERT_ACTIVITY_SQL = """INSERT INTO activities
@@ -499,5 +499,98 @@ def insert_activity(
             "activity_type": activity_type,
             "subject": subject,
             "summary": summary,
+        },
+    )
+
+
+# create_lead (F08 Etappe 4c, ADR 0005 Punkt 5). Jeder INSERT steht in einer eigenen Zeichenkette. Alle Werte sind
+# benannte Parameter; der Status steht fest im Text ('lead', die INSERT-Policy der Schreibrolle verlangt es), created_at
+# setzt der Standardwert der Tabelle (now()).
+# Die drei Nachschlagungen sind EINE Anweisung: In READ COMMITTED sieht jede Anweisung den Stand zu ihrem eigenen
+# Zeitpunkt. Mit drei getrennten Abfragen könnte ein paralleler Aufruf zwischen ihnen committen, und aus "kein Treffer
+# über die Domain, Treffer über den Namen" würde ein falscher Konflikt. Eine Anweisung ist eine Momentaufnahme. Jede
+# Unterabfrage liefert höchstens eine Zeile (domain, lower(company_name) und email sind eindeutig). Der Firmenname wird
+# wie der eindeutige Index auf lower(company_name) gesucht.
+FIND_LEAD_MATCHES_SQL = """SELECT
+    (SELECT id FROM customers WHERE domain = %(domain)s::text) AS domain_customer_id,
+    (SELECT id FROM customers WHERE lower(company_name) = lower(%(company_name)s::text)) AS name_customer_id,
+    (SELECT customer_id FROM contacts WHERE email = %(email)s::text) AS contact_customer_id"""
+
+INSERT_CUSTOMER_SQL = """INSERT INTO customers
+    (company_name, domain, industry, country, status)
+VALUES
+    (%(company_name)s::text, %(domain)s::text, %(industry)s::text, %(country)s::text, 'lead')
+RETURNING id"""
+
+INSERT_CONTACT_SQL = """INSERT INTO contacts
+    (customer_id, first_name, last_name, email, job_title, language)
+VALUES
+    (%(customer_id)s::bigint, %(first_name)s::text, %(last_name)s::text, %(email)s::text,
+     %(job_title)s::text, %(language)s::text)"""
+
+
+def find_lead_matches(
+    connection: Any, domain: str, company_name: str, email: str
+) -> tuple[int | None, int | None, int | None]:
+    """(Kunde der Domain, Kunde des Firmennamens, Kunde der Adresse), je None ohne Treffer. Nur intern.
+
+    Der Firmenname wird ohne Beachtung der Schreibung gesucht. Eine Anweisung, also ein Stand für alle drei.
+    """
+    rows = fetch_all(
+        connection,
+        FIND_LEAD_MATCHES_SQL,
+        {"domain": domain, "company_name": company_name, "email": email},
+    )
+    row = rows[0]  # ein SELECT ohne FROM liefert immer genau eine Zeile
+    by_domain, by_name, owner = (
+        row["domain_customer_id"],
+        row["name_customer_id"],
+        row["contact_customer_id"],
+    )
+    return (
+        None if by_domain is None else int(by_domain),
+        None if by_name is None else int(by_name),
+        None if owner is None else int(owner),
+    )
+
+
+def insert_customer(
+    connection: Any, company_name: str, domain: str, industry: str, country: str
+) -> int:
+    """Legt genau einen Kunden mit Status lead an und gibt seine interne id zurück (nur intern, nie ausgeben)."""
+    with connection.cursor(row_factory=dict_row) as cursor:
+        cursor.execute(
+            INSERT_CUSTOMER_SQL,
+            {
+                "company_name": company_name,
+                "domain": domain,
+                "industry": industry,
+                "country": country,
+            },
+        )
+        row = cursor.fetchone()
+    assert row is not None  # RETURNING id liefert bei Erfolg immer genau eine Zeile
+    return int(row["id"])
+
+
+def insert_contact(
+    connection: Any,
+    customer_id: int,
+    first_name: str,
+    last_name: str,
+    email: str,
+    job_title: str | None,
+    language: str,
+) -> None:
+    """Legt genau einen Kontakt an einem bestehenden Kunden an. Gibt nichts zurück."""
+    connection.execute(
+        INSERT_CONTACT_SQL,
+        {
+            "customer_id": customer_id,
+            "first_name": first_name,
+            "last_name": last_name,
+            "email": email,
+            "job_title": job_title,
+            "language": language,
         },
     )

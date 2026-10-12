@@ -2,9 +2,11 @@
 
 Lese-Pfad /mcp (Lese-Token): search_products, get_product und find_customer sind seit F07 echt (Daten aus
 PostgreSQL, nur lesend); beide Resources und der Prompt sind noch Platzhalter.
-Schreib-Pfad /mcp-write (Schreib-Token, nur mit Schreibkonfiguration): log_activity ist seit F08 Etappe 4b echt
-(legt genau eine Aktivität an), create_lead ist noch Platzhalter. Platzhalter liefern einen festen Fehler
-"noch nicht implementiert", nie Scheindaten, und haben keine Parameter. Jeder Pfad listet nur seine Schnittstellen; beide zusammen sind die acht.
+Schreib-Pfad /mcp-write (Schreib-Token, nur mit Schreibkonfiguration): log_activity (F08 Etappe 4b, legt genau eine
+Aktivität an) und create_lead (F08 Etappe 4c, legt einen Lead an und lässt einen bestehenden Kunden unverändert) sind
+echte Werkzeuge. Platzhalter sind nur noch beide Resources und der Prompt: Sie liefern einen festen Fehler
+"noch nicht implementiert", nie Scheindaten, und haben keine Parameter. Jeder Pfad listet nur seine Schnittstellen;
+beide zusammen sind die acht.
 Fehlertexte enthalten keine Eingabewerte. Es gibt keine Werkzeuge zum Versenden oder Löschen
 (Auftrag 5.1). Ohne Datenbank antworten die Lese-Werkzeuge mit "nicht konfiguriert", nie mit Scheindaten.
 
@@ -14,7 +16,7 @@ Jede App liegt in ihrer eigenen BearerTokenMiddleware; davor wählt die Pfadweic
 from typing import Annotated, Any
 
 from mcp.server.mcpserver import MCPServer
-from mcp.server.mcpserver.exceptions import ResourceError, ToolError
+from mcp.server.mcpserver.exceptions import ResourceError
 from mcp.server.transport_security import TransportSecuritySettings
 from mcp.shared.exceptions import MCPError
 from mcp_types import INTERNAL_ERROR
@@ -28,10 +30,16 @@ from hoffmann_data.config import LOOPBACK_HOSTS, Config
 from hoffmann_data.db import ConnectionSource, Database, WriteDatabase
 from hoffmann_data.limits import (
     ACTIVITY_TYPES,
+    ALLOWED_COUNTRIES,
+    ALLOWED_INDUSTRIES,
+    ALLOWED_LANGUAGES,
     DEFAULT_LIMIT,
+    MAX_COMPANY_NAME_LENGTH,
     MAX_DOMAIN_LENGTH,
     MAX_EMAIL_LENGTH,
+    MAX_JOB_TITLE_LENGTH,
     MAX_LIMIT,
+    MAX_PERSON_NAME_LENGTH,
     MAX_QUERY_LENGTH,
     MAX_SUBJECT_LENGTH,
     MAX_SUMMARY_LENGTH,
@@ -155,6 +163,73 @@ LOG_ACTIVITY_DESCRIPTION = (
     "legt einen zweiten Eintrag an. Ergebnis: customer_domain, type und logged (immer wahr)."
 )
 
+# Eingabeschemata von create_lead (Any mit eigenem Schema: Die Prüfung macht limits.py, nicht das SDK)
+COMPANY_NAME_SCHEMA = {
+    "type": "string",
+    "title": "Company Name",
+    "minLength": 1,
+    "maxLength": MAX_COMPANY_NAME_LENGTH,
+    "description": "Firmenname des Leads.",
+}
+FIRST_NAME_SCHEMA = {
+    "type": "string",
+    "title": "Contact First Name",
+    "minLength": 1,
+    "maxLength": MAX_PERSON_NAME_LENGTH,
+    "description": "Vorname der Ansprechperson.",
+}
+LAST_NAME_SCHEMA = {
+    "type": "string",
+    "title": "Contact Last Name",
+    "minLength": 1,
+    "maxLength": MAX_PERSON_NAME_LENGTH,
+    "description": "Nachname der Ansprechperson.",
+}
+LEAD_EMAIL_SCHEMA = {
+    "type": "string",
+    "title": "Contact Email",
+    "minLength": 1,
+    "maxLength": MAX_EMAIL_LENGTH,
+    "description": "E-Mail-Adresse der Ansprechperson (nur .example); ihre Domain ist die Domain des Kunden.",
+}
+LANGUAGE_SCHEMA = {
+    "type": "string",
+    "title": "Language",
+    "enum": list(ALLOWED_LANGUAGES),
+    "description": "Sprache der Ansprechperson: de oder en.",
+}
+COUNTRY_SCHEMA = {
+    "type": "string",
+    "title": "Country",
+    "enum": list(ALLOWED_COUNTRIES),
+    "description": "Land des Kunden: de, at oder ch.",
+}
+JOB_TITLE_SCHEMA = {
+    "type": "string",
+    "title": "Contact Job Title",
+    "maxLength": MAX_JOB_TITLE_LENGTH,
+    "description": "Optional: Position der Ansprechperson.",
+}
+INDUSTRY_SCHEMA = {
+    "type": "string",
+    "title": "Industry",
+    "enum": list(ALLOWED_INDUSTRIES),
+    "description": "Optional: Branche des Kunden; ohne Angabe gilt other.",
+}
+CREATE_LEAD_DESCRIPTION = (
+    "Legt einen neuen Lead (Kunde mit Status lead) samt Ansprechperson an, nur nach Freigabe. Parameter: "
+    "company_name (Firmenname), contact_first_name, contact_last_name, contact_email (die Domain des Kunden stammt "
+    "aus dieser Adresse, nur .example), language (Sprache der Ansprechperson, de oder en), country (de, at oder "
+    "ch), contact_job_title (optional), industry (optional, Standard other). Dublettenschutz: Zuerst wird über die "
+    "Domain, dann über den Firmennamen (ohne Beachtung der Schreibung) nach einem Kunden gesucht. Bei einem Treffer "
+    "wird der bestehende Kunde zurückgegeben, ein bestehender Kunde wird nicht verändert (kein Feld, auch nicht "
+    "Status, Branche oder Land); eine Ansprechperson, die es noch nicht gibt, wird ergänzt, eine vorhandene bleibt "
+    "unverändert. Unterdomains werden nicht zusammengeführt. Passt der Firmenname oder die Adresse zu einem anderen "
+    "Kunden als die Domain, wird nichts angelegt und ein Mitarbeiter entscheidet. Es wird nichts überschrieben oder "
+    "gelöscht. Ergebnis: customer_domain, customer_created und contact_created (ob Kunde und Ansprechperson neu "
+    "angelegt wurden)."
+)
+
 # Größte erlaubte Anfrage (Auftrag 11.3: Eingaben begrenzen). Das SDK-Standardlimit liegt bei 4 MiB;
 # größere Anfragen mit gültigem Token bekommen 413. Die Eingaben der Werkzeuge prüft limits.py.
 MAX_REQUEST_BODY_BYTES = 256 * 1024
@@ -228,23 +303,41 @@ def create_read_server(database: ConnectionSource | None = None) -> MCPServer:
 def create_write_server(write_database: ConnectionSource | None = None) -> MCPServer:
     """Der Server des Schreib-Pfads /mcp-write: nur create_lead und log_activity, keine Resources, kein Prompt.
 
-    log_activity ist seit F08 Etappe 4b echt und schreibt über `write_database` (Schreibrolle, ADR 0005); create_lead
-    ist noch Platzhalter und greift nicht auf die Datenbank zu.
+    Beide Werkzeuge sind echt und schreiben über `write_database` (Schreibrolle, ADR 0005): log_activity seit F08
+    Etappe 4b, create_lead seit Etappe 4c.
     """
     server = MCPServer(
         "hoffmann-data-write",
         instructions=(
-            "Schreib-Werkzeuge des Datenservice der Hoffmann Maschinenbau GmbH: log_activity protokolliert eine "
-            "Aktivität zu einem bekannten Kunden und legt dafür genau einen neuen Eintrag an; create_lead legt "
-            "einen Lead an und ist noch Platzhalter. Diesen Pfad nutzt nur der Freigabeweg."
+            "Schreib-Werkzeuge des Datenservice der Hoffmann Maschinenbau GmbH: create_lead legt einen Lead mit "
+            "Ansprechperson an und verhindert Dubletten, log_activity protokolliert eine Aktivität zu einem "
+            "bekannten Kunden. Beide legen nur neue Einträge an und überschreiben oder löschen nichts. Diesen "
+            "Pfad nutzt nur der Freigabeweg."
         ),
     )
 
-    @server.tool(
-        name="create_lead", description="Neuen Lead anlegen, nur nach Freigabe (Platzhalter)."
-    )
-    def create_lead() -> str:
-        raise ToolError(NOT_IMPLEMENTED)
+    @server.tool(name="create_lead", description=CREATE_LEAD_DESCRIPTION)
+    def create_lead(
+        company_name: Annotated[Any, WithJsonSchema(COMPANY_NAME_SCHEMA)],
+        contact_first_name: Annotated[Any, WithJsonSchema(FIRST_NAME_SCHEMA)],
+        contact_last_name: Annotated[Any, WithJsonSchema(LAST_NAME_SCHEMA)],
+        contact_email: Annotated[Any, WithJsonSchema(LEAD_EMAIL_SCHEMA)],
+        language: Annotated[Any, WithJsonSchema(LANGUAGE_SCHEMA)],
+        country: Annotated[Any, WithJsonSchema(COUNTRY_SCHEMA)],
+        contact_job_title: Annotated[Any, WithJsonSchema(JOB_TITLE_SCHEMA)] = None,
+        industry: Annotated[Any, WithJsonSchema(INDUSTRY_SCHEMA)] = None,
+    ) -> crm.LeadResult:
+        return crm.create_lead(
+            write_database,
+            company_name,
+            contact_first_name,
+            contact_last_name,
+            contact_email,
+            language,
+            country,
+            contact_job_title,
+            industry,
+        )
 
     @server.tool(name="log_activity", description=LOG_ACTIVITY_DESCRIPTION)
     def log_activity(

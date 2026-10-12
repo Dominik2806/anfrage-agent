@@ -133,9 +133,16 @@ SUMMARY_INVALID = (
     f"Zeilenumbruch, Wagenrücklauf und Tab sind erlaubt, andere {_CONTROL_CHARACTERS} nicht."
 )
 # log_activity (F08): feste Meldungen ohne Domain und ohne Adresse. CONTACT_NOT_FOUND steht für "Kontakt unbekannt" und
-# für "Kontakt gehört zu einem anderen Kunden": Die Meldung verrät nicht, ob die Adresse bei einem anderen Kunden existiert.
+# für "Kontakt gehört zu einem anderen Kunden": Die Meldung verrät nicht, ob die Adresse bei einem anderen Kunden
+# existiert.
 CUSTOMER_NOT_FOUND = "Der Kunde ist nicht bekannt: Zu dieser Domain gibt es keinen Kunden."
 CONTACT_NOT_FOUND = "Der Kontakt ist für diesen Kunden nicht bekannt."
+# create_lead (F08 Etappe 4c): feste Meldung für jeden Konflikt mit bestehenden Daten (Firmenname oder Adresse gehören
+# einem anderen Kunden als die Domain). Sie nennt weder Domain noch Firmenname noch Adresse.
+LEAD_CONFLICT = (
+    "Der Lead steht in Konflikt mit bestehenden Daten und wurde nicht angelegt. "
+    "Ein Mitarbeiter muss ihn prüfen."
+)
 
 _ARTICLE_NUMBER = re.compile(r"[A-Z]{2}-[0-9]{4}(-[A-Z0-9]{1,4})?")
 # Die CHECKs von customers.domain und contacts.email in db/schema.sql (ohne ^ und $, mit fullmatch benutzt).

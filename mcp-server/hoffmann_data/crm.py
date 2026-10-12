@@ -1,9 +1,11 @@
-"""CRM-Werkzeuge des Datenservice: find_customer (F07, nur lesend) und log_activity (F08, schreibt genau eine Zeile).
+"""CRM-Werkzeuge des Datenservice: find_customer (F07, nur lesend), log_activity und create_lead (F08, nur anlegen).
 
 Werte nur als benannte Parameter. Die Abfragetexte sind feste Konstanten; Eingaben werden nie in
 sie eingesetzt (Test: test_package_sql_rules.py). Die Eingabe prüft limits.py, bevor die Datenbank berührt wird.
 log_activity legt nur eine Aktivität an; Kunde und Kontakt werden gelesen und nie verändert, nichts wird überschrieben
-oder gelöscht. Die SQL-Texte der Schreibseite (das einzige INSERT INTO) stehen in db.py.
+oder gelöscht. create_lead legt einen Lead mit Kontakt an, wenn es keinen Treffer gibt, und lässt einen bestehenden
+Kunden unverändert (Dublettenschutz, ADR 0005 Punkt 5). Die SQL-Texte der Schreibseite (das einzige INSERT INTO)
+stehen in db.py.
 
 Abgleich (immer exakt, ohne Beachtung der Schreibung; Subdomains und Teilnamen treffen nicht):
 - Eingabe mit "@": zuerst der Kontakt über die Adresse (matched_by "email"), sonst der Kunde über die Domain
@@ -12,7 +14,7 @@ Abgleich (immer exakt, ohne Beachtung der Schreibung; Subdomains und Teilnamen t
   die Domain (matched_by "domain").
 Mehrdeutigkeit ist ein fester Fehler, nie Raten. Heute machen die UNIQUE-Constraints auf domain, email und
 lower(company_name) sie unmöglich; die Abfragen holen trotzdem höchstens zwei Zeilen und pick_unique entscheidet.
-Dublettenlogik und Anlegen von Leads gehören nicht hierher (F08).
+Die Dublettenlogik der Schreibseite steht in create_lead (unten), nicht in find_customer.
 """
 
 import re
@@ -23,23 +25,36 @@ from typing import Any, Literal, TypedDict
 from mcp.server.mcpserver.exceptions import ToolError
 
 from hoffmann_data.db import (
+    DUPLICATE_ERROR,
     ConnectionSource,
     fetch_all,
     find_contact_id,
     find_customer_id,
+    find_lead_matches,
     insert_activity,
+    insert_contact,
+    insert_customer,
     read_connection,
     write_connection,
 )
 from hoffmann_data.limits import (
     CONTACT_NOT_FOUND,
     CUSTOMER_NOT_FOUND,
+    LEAD_CONFLICT,
     check_activity_type,
+    check_company_name,
+    check_country,
     check_customer_query,
     check_domain,
     check_email,
+    check_first_name,
+    check_industry,
+    check_job_title,
+    check_language,
+    check_last_name,
     check_subject,
     check_summary,
+    email_domain,
 )
 
 AMBIGUOUS_MESSAGE = "Mehrdeutiger Treffer."
@@ -278,3 +293,88 @@ def log_activity(
                 raise ToolError(CONTACT_NOT_FOUND)
         insert_activity(connection, customer_id, contact_id, kind, clean_subject, clean_summary)
     return {"customer_domain": domain, "type": kind, "logged": True}
+
+
+class LeadResult(TypedDict):
+    customer_domain: str
+    customer_created: bool
+    contact_created: bool
+
+
+def create_lead(
+    database: ConnectionSource | None,
+    company_name: Any,
+    contact_first_name: Any,
+    contact_last_name: Any,
+    contact_email: Any,
+    language: Any,
+    country: Any,
+    contact_job_title: Any = None,
+    industry: Any = None,
+) -> LeadResult:
+    """Legt einen Lead mit Kontakt an, wenn es keinen Treffer gibt; ein bestehender Kunde bleibt unverändert (F08).
+
+    Eingaben in Parameterreihenfolge prüfen; die Domain des Kunden ist die der Adresse. In einer Transaktion: Kunde über
+    die Domain, Kunde über den Firmennamen (ohne Beachtung der Schreibung), Eigentümer der Adresse. Jeder Konflikt
+    (Name ohne Domaintreffer, Domain und Name auf verschiedenen Kunden, Adresse bei einem anderen Kunden) ist
+    LEAD_CONFLICT, bevor etwas geschrieben wird. Sonst: kein Treffer legt Kunde (Status lead) und Kontakt an; ein
+    Treffer über die Domain lässt den Kunden unverändert und ergänzt nur einen fehlenden Kontakt.
+    Verliert der Aufruf ein Rennen (UniqueViolation, hier DUPLICATE_ERROR), läuft der ganze Ablauf genau einmal in einer
+    neuen Transaktion erneut; scheitert auch das, bleibt DUPLICATE_ERROR. Andere Fehler werden nicht wiederholt.
+    Die Ergebnisse nennen keine interne id. Es gibt keinen Schalter für die Dublettenerkennung.
+    """
+    name = check_company_name(company_name)
+    first_name = check_first_name(contact_first_name)
+    last_name = check_last_name(contact_last_name)
+    email = check_email(contact_email)
+    contact_language = check_language(language)
+    customer_country = check_country(country)
+    job_title = check_job_title(contact_job_title)
+    customer_industry = check_industry(industry)
+    domain = email_domain(email)
+
+    def attempt() -> LeadResult:
+        with write_connection(database) as connection:
+            # Eine Anweisung, ein Stand: kein Konflikt aus einem Commit zwischen zwei Abfragen
+            by_domain, by_name, owner = find_lead_matches(connection, domain, name, email)
+            # Alle Konflikte vor dem ersten INSERT: Es wird nie geraten und nichts halb geschrieben
+            if by_name is not None and by_name != by_domain:
+                raise ToolError(LEAD_CONFLICT)
+            if owner is not None and owner != by_domain:
+                raise ToolError(LEAD_CONFLICT)
+            if by_domain is None:
+                customer_id = insert_customer(
+                    connection, name, domain, customer_industry, customer_country
+                )
+                insert_contact(
+                    connection,
+                    customer_id,
+                    first_name,
+                    last_name,
+                    email,
+                    job_title,
+                    contact_language,
+                )
+                return {
+                    "customer_domain": domain,
+                    "customer_created": True,
+                    "contact_created": True,
+                }
+            if owner == by_domain:
+                return {
+                    "customer_domain": domain,
+                    "customer_created": False,
+                    "contact_created": False,
+                }
+            insert_contact(
+                connection, by_domain, first_name, last_name, email, job_title, contact_language
+            )
+            return {"customer_domain": domain, "customer_created": False, "contact_created": True}
+
+    try:
+        return attempt()
+    except ToolError as error:
+        if str(error) != DUPLICATE_ERROR:
+            raise
+    # Außerhalb des except-Blocks: kein verketteter Kontext. Eine zweite Niederlage gibt DUPLICATE_ERROR weiter.
+    return attempt()
