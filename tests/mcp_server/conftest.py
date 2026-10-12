@@ -511,3 +511,76 @@ def committed_customers(db_url: str, db_schema: str) -> Callable[[str], int]:
         return int(found[0])
 
     return _count
+
+
+# Fixtures für den Doppelbetrieb (F08 Etappe 3): Lese-App auf /mcp, Schreib-App auf /mcp-write, davor die Weiche.
+# Beide Datenbanken werden aus der Config gebaut, aber nie verbunden (die Schreib-Werkzeuge sind Platzhalter, die
+# Tests rufen keine Lese-Werkzeuge mit Datenbank auf). Ohne Schreibkonfiguration gelten weiter `app` und `client`.
+
+
+@pytest.fixture
+def read_headers(token: str) -> dict[str, str]:
+    return {"Authorization": f"Bearer {token}"}
+
+
+@pytest.fixture
+def write_headers(write_token: str) -> dict[str, str]:
+    return {"Authorization": f"Bearer {write_token}"}
+
+
+@pytest.fixture
+def dual_app(make_app: Callable[..., Any], write_env: dict[str, str]) -> Any:
+    """Die App mit Schreibweg: die Weiche vor beiden Apps."""
+    return make_app(write_env)
+
+
+@pytest.fixture
+def dual_client(dual_app: Any) -> Iterator[TestClient]:
+    """TestClient mit laufender Lifespan (beide Session-Manager starten darin)."""
+    with TestClient(dual_app, base_url=BASE_URL) as c:
+        yield c
+
+
+@pytest.fixture
+def rpc_on(dual_client: TestClient) -> Callable[..., dict[str, Any]]:
+    """Schickt rohes JSON-RPC an einen Pfad mit den angegebenen Kopfzeilen und gibt die geparste Antwort zurück.
+
+    Aufruf: rpc_on(pfad, kopfzeilen, methode, parameter=None). Erwartet HTTP 200; für andere Antworten
+    (401, 404, 413, ...) den dual_client selbst benutzen. Wie `rpc` ohne initialize, der Server ist zustandslos.
+    """
+    counter = iter(range(1, 10_000))
+
+    def _call(
+        path: str, headers: dict[str, str], method: str, params: dict[str, Any] | None = None
+    ) -> dict[str, Any]:
+        payload = {"jsonrpc": "2.0", "id": next(counter), "method": method, "params": params or {}}
+        response = dual_client.post(path, json=payload, headers={**RPC_HEADERS, **headers})
+        assert response.status_code == 200, response.text
+        return parse_rpc_body(response)
+
+    return _call
+
+
+@pytest.fixture
+def rpc_read(
+    rpc_on: Callable[..., dict[str, Any]], read_headers: dict[str, str]
+) -> Callable[..., dict[str, Any]]:
+    """`rpc_on` für den Lese-Pfad /mcp mit dem Lese-Token: rpc_read(methode, parameter=None)."""
+
+    def _call(method: str, params: dict[str, Any] | None = None) -> dict[str, Any]:
+        return rpc_on(MCP_PATH, read_headers, method, params)
+
+    return _call
+
+
+@pytest.fixture
+def rpc_write(
+    rpc_on: Callable[..., dict[str, Any]], write_headers: dict[str, str]
+) -> Callable[..., dict[str, Any]]:
+    """`rpc_on` für den Schreib-Pfad /mcp-write mit dem Schreib-Token: rpc_write(methode, parameter=None)."""
+    from mcp_testkit import WRITE_PATH
+
+    def _call(method: str, params: dict[str, Any] | None = None) -> dict[str, Any]:
+        return rpc_on(WRITE_PATH, write_headers, method, params)
+
+    return _call

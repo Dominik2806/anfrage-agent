@@ -321,3 +321,101 @@ def delete_marker_rows(conn: Any, pattern: str = f"{ROW_MARKER}-%") -> None:
     conn.execute(f"DELETE FROM activities WHERE customer_id IN {owned}", (pattern,))
     conn.execute(f"DELETE FROM contacts WHERE customer_id IN {owned}", (pattern,))
     conn.execute("DELETE FROM customers WHERE domain LIKE %s", (pattern,))
+
+
+# Zwei Pfade, zwei Token, Pfadweiche (F08 Etappe 3, ADR 0005 Punkte 3 und 4)
+WRITE_PATH = "/mcp-write"
+# Seit F08 liegen create_lead und log_activity auf WRITE_PATH (bis Etappe 4 als Platzhalter), nicht mehr auf MCP_PATH
+WRITE_TOOLS = {"create_lead", "log_activity"}
+
+
+def body_of_size(size: int, tool: str) -> bytes:
+    """Gültiger JSON-RPC-Aufruf von `tool` mit genau `size` Bytes (nur ASCII), das Argument `query` füllt auf.
+
+    Gemeinsame Hilfe für die Größenprüfungen auf /mcp-write (test_mcp_write_limits.py). Geprüft wird nur die
+    Größenbegrenzung der Anfrage, nicht der Inhalt des Arguments.
+    """
+
+    def build(pad: int) -> bytes:
+        payload = {
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "tools/call",
+            "params": {"name": tool, "arguments": {"query": "x" * pad}},
+        }
+        return json.dumps(payload).encode("ascii")
+
+    overhead = len(build(0))
+    body = build(size - overhead)
+    assert len(body) == size
+    return body
+
+
+class RecordingApp:
+    """ASGI-Fake für die Tests der Weiche: merkt sich jeden Aufruf, liest nie `receive` und antwortet 200 mit ihrem Namen.
+
+    `calls` enthält (scope, receive, send) so, wie die Weiche sie übergeben hat (Identität prüfbar).
+    """
+
+    def __init__(self, name: str) -> None:
+        self.name = name
+        self.calls: list[tuple[Any, Any, Any]] = []
+
+    @property
+    def scopes(self) -> list[Any]:
+        return [scope for scope, _, _ in self.calls]
+
+    async def __call__(self, scope: Any, receive: Any, send: Any) -> None:
+        self.calls.append((scope, receive, send))
+        if scope["type"] == "http":
+            await send({"type": "http.response.start", "status": 200, "headers": []})
+            await send({"type": "http.response.body", "body": self.name.encode()})
+
+
+def drive_lifespan(app: Any) -> list[dict[str, Any]]:
+    """Spielt eine ASGI-Lifespan durch: sendet `lifespan.startup`, nach `startup.complete` `lifespan.shutdown`.
+
+    Gibt alle Nachrichten zurück, die die App gesendet hat. Eine Ausnahme der App wird nicht verschluckt (der Test
+    scheitert dann); eine App, die nach fünf Sekunden nicht fertig ist, ebenfalls.
+    """
+    import asyncio
+
+    async def run() -> list[dict[str, Any]]:
+        sent: list[dict[str, Any]] = []
+        inbox: asyncio.Queue[dict[str, Any]] = asyncio.Queue()
+        await inbox.put({"type": "lifespan.startup"})
+
+        async def send(message: dict[str, Any]) -> None:
+            sent.append(message)
+            if message["type"] == "lifespan.startup.complete":
+                await inbox.put({"type": "lifespan.shutdown"})
+
+        scope = {"type": "lifespan", "asgi": {"version": "3.0"}}
+        await asyncio.wait_for(app(scope, inbox.get, send), timeout=5)
+        return sent
+
+    return asyncio.run(run())
+
+
+def fake_lifespan(name: str, events: list[str], fail_on: str | None = None) -> Any:
+    """Fabrik für einen asynchronen Kontextmanager, der `name:enter` und `name:exit` in `events` aufzeichnet.
+
+    `fail_on` ("<name>:enter" oder "<name>:exit") lässt genau diesen Schritt mit RuntimeError("geheimtext")
+    scheitern; beim Start steht dann `<name>:enter-failed` in `events`. Die Weiche ruft die Fabrik je Lauf auf.
+    """
+    from contextlib import asynccontextmanager
+
+    @asynccontextmanager
+    async def factory() -> Any:
+        if fail_on == f"{name}:enter":
+            events.append(f"{name}:enter-failed")
+            raise RuntimeError("geheimtext")
+        events.append(f"{name}:enter")
+        try:
+            yield
+        finally:
+            events.append(f"{name}:exit")
+            if fail_on == f"{name}:exit":
+                raise RuntimeError("geheimtext")
+
+    return factory
