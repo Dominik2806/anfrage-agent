@@ -473,8 +473,10 @@ EMAIL_REJECTED = [
     "a" + EM_SPACE + "b@firma.example",
     "kontakt@firma.example" + NUL,
     NUL + "kontakt@firma.example",
-    SECRET_MARKER + "@firma.example",
-    "kontakt@" + SECRET_MARKER + ".example",
+    # Der Marker ist nach lower() ein schema-gültiger Lokalteil bzw. ein gültiges Domain-Label,
+    # deshalb enden diese Werte auf .de und bleiben aus diesem Grund ungültig
+    SECRET_MARKER + "@firma.de",
+    "kontakt@" + SECRET_MARKER + ".de",
 ]
 
 
@@ -537,7 +539,8 @@ def test_check_domain_accepts_and_lowercases(value: str, expected: str) -> None:
         "fir\nma.example",
         "firma." + "\t" + "example",
         "MÜLLER.EXAMPLE",
-        SECRET_MARKER + ".example",
+        # Der Marker ist nach lower() ein gültiges Domain-Label; .de macht die Domain ungültig
+        SECRET_MARKER + ".de",
         SECRET_MARKER,
     ],
     ids=repr,
