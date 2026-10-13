@@ -2,10 +2,11 @@
 
 Der Weg geht durch Middleware, SDK-App und Transport. mcp.Client in-process würde die Auth umgehen.
 Seit F07 sind die drei Lese-Werkzeuge echt (Verhalten: test_search_products.py, test_get_product.py,
-test_find_customer.py). Beide Resources und der Prompt bleiben Platzhalter und sind parameterlos, deshalb
-genügen leere Argumente. create_lead und log_activity liegen seit F08 (ADR 0005) auf /mcp-write und sind hier
-unbekannt; ihre Prüfungen stehen in test_mcp_write_interfaces.py. Hier stehen die Prüfungen, die keine
-Datenbank brauchen: Liste, Beschreibungen und Schemas der Werkzeuge des Lese-Pfads.
+test_find_customer.py). Seit F09 sind auch beide Resources und der Prompt echt (Verhalten: test_mcp_policies.py,
+test_mcp_prompt.py, test_mcp_policy_no_leak.py, test_policies_files.py). create_lead und log_activity liegen seit F08
+(ADR 0005) auf /mcp-write und sind hier unbekannt; ihre Prüfungen stehen in test_mcp_write_interfaces.py. Hier
+stehen die Prüfungen, die keine Datenbank brauchen: Liste, Beschreibungen und Schemas der Schnittstellen des
+Lese-Pfads.
 """
 
 import json
@@ -14,7 +15,6 @@ from typing import Any
 
 import pytest
 from mcp_testkit import (
-    INTERNAL_ERROR_CODE,
     NOT_IMPLEMENTED,
     PROMPT_NAMES,
     READ_TOOLS,
@@ -74,22 +74,6 @@ def test_the_write_tools_are_unknown_on_the_read_path(rpc: Rpc, tool: str) -> No
     assert body["result"]["isError"] is True
     assert NOT_IMPLEMENTED not in json.dumps(body, ensure_ascii=False)
     assert not body["result"].get("structuredContent")
-
-
-@pytest.mark.parametrize("uri", sorted(RESOURCE_URIS))
-def test_each_resource_placeholder_returns_an_error_not_data(rpc: Rpc, uri: str) -> None:
-    body = rpc("resources/read", {"uri": uri})
-    assert "error" in body and "result" not in body
-    assert body["error"]["code"] == INTERNAL_ERROR_CODE
-    assert NOT_IMPLEMENTED in body["error"]["message"]
-
-
-def test_prompt_placeholder_returns_an_error_not_data(rpc: Rpc) -> None:
-    """Das SDK reicht nur MCPError mit Text durch; jede andere Ausnahme wird ersetzt."""
-    body = rpc("prompts/get", {"name": "antwort_entwurf", "arguments": {}})
-    assert "error" in body and "result" not in body
-    assert body["error"]["code"] == INTERNAL_ERROR_CODE
-    assert NOT_IMPLEMENTED in body["error"]["message"]
 
 
 def test_unknown_tool_is_a_tool_error_result(rpc: Rpc) -> None:
