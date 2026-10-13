@@ -10,6 +10,9 @@ Pr체fungen, nie URL, Rollenname oder Token. Es gibt keinen Schalter, der die Pr�
 Ist der Schreibweg konfiguriert (MCP_SERVER_WRITE_DATABASE_URL und MCP_SERVER_WRITE_TOKEN, ADR 0005), pr체ft main()
 danach auch db.verify_write_role. Die Meldungen dieser Pr체fung tragen auf stderr den Pr채fix "Schreibweg:", auch sie
 haben keinen Schalter. Ohne die beiden Schreibvariablen entf채llt die Pr체fung, und es gibt nur den Endpunkt /mcp.
+
+Danach pr체ft policies.verify_policies, dass die Richtliniendateien lesbar sind und signatur.md ihre Abschnitte hat
+(F09, ADR 0006). Fehlt etwas, endet der Start mit Exit-Code 1; auf stderr stehen nur Kurzbezeichnungen, nie ein Pfad.
 """
 
 import os
@@ -18,7 +21,7 @@ from collections.abc import Mapping
 
 import uvicorn
 
-from hoffmann_data import db
+from hoffmann_data import db, policies
 from hoffmann_data.config import ConfigError, load_config
 from hoffmann_data.server import create_app
 
@@ -48,6 +51,12 @@ def main(env: Mapping[str, str] | None = None) -> None:
         except db.RoleCheckError as exc:
             print(f"Schreibweg: {exc}", file=sys.stderr)
             raise SystemExit(1) from None
+
+    # Die Richtlinien werden je Abruf gelesen; dieser Start-Check meldet ein falsches Hosting schon hier (kein Schalter).
+    missing = policies.verify_policies(policies.POLICY_DIR)
+    if missing:
+        print("Richtlinien: " + ", ".join(missing), file=sys.stderr)
+        raise SystemExit(1)
 
     # Kein Zugriffsprotokoll: Es w체rde Pfad und Query jeder Anfrage schreiben, auch einer mit falsch
     # platziertem Token.

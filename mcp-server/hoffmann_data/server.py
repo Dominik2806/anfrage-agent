@@ -1,11 +1,11 @@
 """MCP-Server hoffmann-data: acht Schnittstellen aus Auftrag 6.4, auf zwei Pfaden mit zwei Token (ADR 0005).
 
 Lese-Pfad /mcp (Lese-Token): search_products, get_product und find_customer sind seit F07 echt (Daten aus
-PostgreSQL, nur lesend); beide Resources und der Prompt sind noch Platzhalter.
+PostgreSQL, nur lesend); seit F09 liefern beide Resources Texte aus data/richtlinien (policies.py), und der Prompt
+antwort_entwurf (draft_prompt.py, draft.py) baut den Entwurfsprompt ohne Datenbank.
 Schreib-Pfad /mcp-write (Schreib-Token, nur mit Schreibkonfiguration): log_activity (F08 Etappe 4b, legt genau eine
 Aktivität an) und create_lead (F08 Etappe 4c, legt einen Lead an und lässt einen bestehenden Kunden unverändert) sind
-echte Werkzeuge. Platzhalter sind nur noch beide Resources und der Prompt: Sie liefern einen festen Fehler
-"noch nicht implementiert", nie Scheindaten, und haben keine Parameter. Jeder Pfad listet nur seine Schnittstellen;
+echte Werkzeuge; dieser Pfad hat weder Resources noch Prompt. Jeder Pfad listet nur seine Schnittstellen;
 beide zusammen sind die acht.
 Fehlertexte enthalten keine Eingabewerte. Es gibt keine Werkzeuge zum Versenden oder Löschen
 (Auftrag 5.1). Ohne Datenbank antworten die Lese-Werkzeuge mit "nicht konfiguriert", nie mit Scheindaten.
@@ -13,21 +13,27 @@ Fehlertexte enthalten keine Eingabewerte. Es gibt keine Werkzeuge zum Versenden 
 Jede App liegt in ihrer eigenen BearerTokenMiddleware; davor wählt die Pfadweiche (switch.py) nur nach dem Pfad.
 """
 
+from pathlib import Path
 from typing import Annotated, Any
 
 from mcp.server.mcpserver import MCPServer
 from mcp.server.mcpserver.exceptions import ResourceError
 from mcp.server.transport_security import TransportSecuritySettings
-from mcp.shared.exceptions import MCPError
-from mcp_types import INTERNAL_ERROR
 from pydantic import WithJsonSchema
 from starlette.applications import Starlette
 from starlette.types import ASGIApp
 
-from hoffmann_data import catalog, crm
+from hoffmann_data import catalog, crm, policies
 from hoffmann_data.auth import BearerTokenMiddleware
 from hoffmann_data.config import LOOPBACK_HOSTS, Config
 from hoffmann_data.db import ConnectionSource, Database, WriteDatabase
+from hoffmann_data.draft import build_messages
+from hoffmann_data.draft_prompt import (
+    PROMPT_ARGUMENTS,
+    PROMPT_DESCRIPTION,
+    PROMPT_NAME,
+    DraftPrompt,
+)
 from hoffmann_data.limits import (
     ACTIVITY_TYPES,
     ALLOWED_COUNTRIES,
@@ -49,7 +55,6 @@ from hoffmann_data.switch import PathSwitch
 STREAMABLE_HTTP_PATH = "/mcp"
 # Schreib-Pfad (ADR 0005 Punkt 3): nur mit Schreibkonfiguration, nur mit dem Schreib-Token
 WRITE_HTTP_PATH = "/mcp-write"
-NOT_IMPLEMENTED = "Diese Schnittstelle ist noch nicht implementiert."
 
 # Eingabeschema von search_products. Die Parameter sind absichtlich als Any mit eigenem JSON-Schema
 # deklariert: Das SDK würde sonst bei falschem Typ eine Pydantic-Meldung mit dem Eingabewert zurückgeben.
@@ -241,13 +246,19 @@ _LOOPBACK_ALLOWED_HOSTS = ("127.0.0.1:*", "localhost:*", "[::1]:*")
 _LOOPBACK_ALLOWED_ORIGINS = ("http://127.0.0.1:*", "http://localhost:*", "http://[::1]:*")
 
 
-def create_read_server(database: ConnectionSource | None = None) -> MCPServer:
-    """Der Server des Lese-Pfads /mcp: drei Lese-Werkzeuge, beide Resources, der Prompt (nie ein Schreib-Werkzeug)."""
+def create_read_server(
+    database: ConnectionSource | None = None, policy_dir: Path | None = None
+) -> MCPServer:
+    """Der Server des Lese-Pfads /mcp: drei Lese-Werkzeuge, beide Resources, der Prompt (nie ein Schreib-Werkzeug).
+
+    `policy_dir` ersetzt den Richtlinien-Ordner (policies.POLICY_DIR, zur Aufrufzeit gelesen); gedacht für Tests.
+    """
     server = MCPServer(
         "hoffmann-data",
         instructions=(
             "Datenservice der Hoffmann Maschinenbau GmbH. search_products und get_product lesen den "
-            "Katalog, find_customer liest das CRM; die Resources und der Prompt sind noch Platzhalter."
+            "Katalog, find_customer liest das CRM; die Resources liefern den Tonalitätsleitfaden und die "
+            "internen Rabatt- und Eskalationsregeln, der Prompt antwort_entwurf die Vorlage für den Antwortentwurf."
         ),
     )
 
@@ -274,29 +285,49 @@ def create_read_server(database: ConnectionSource | None = None) -> MCPServer:
     @server.resource(
         "policy://tonalitaet",
         name="policy_tonalitaet",
-        description="Tonalitätsleitfaden (Platzhalter).",
+        title="Tonalitätsleitfaden",
+        description=(
+            "Tonalitätsleitfaden für jeden Antwortentwurf: Anrede, Aufbau, Preise und Lieferzeiten, "
+            "vermiedene Formulierungen."
+        ),
         mime_type="text/markdown",
     )
     def policy_tonalitaet() -> str:
-        raise ResourceError(NOT_IMPLEMENTED)
+        try:
+            return policies.tonalitaet_text(
+                policy_dir if policy_dir is not None else policies.POLICY_DIR
+            )
+        except policies.PolicyError:
+            raise ResourceError(policies.POLICY_UNAVAILABLE) from None
 
     @server.resource(
         "policy://rabatte",
         name="policy_rabatte",
-        description="Rabatt- und Eskalationsregeln (Platzhalter).",
+        title="Rabatt- und Eskalationsregeln (intern)",
+        description=(
+            "INTERN: Eskalationsregeln und interne Rabatt-Obergrenzen. Nur für die Entscheidung über "
+            "Eskalation, nie für Aussagen an Kunden."
+        ),
         mime_type="text/markdown",
     )
     def policy_rabatte() -> str:
-        raise ResourceError(NOT_IMPLEMENTED)
+        try:
+            return policies.rabatte_text(
+                policy_dir if policy_dir is not None else policies.POLICY_DIR
+            )
+        except policies.PolicyError:
+            raise ResourceError(policies.POLICY_UNAVAILABLE) from None
 
-    @server.prompt(
-        name="antwort_entwurf", description="Vorlage für den Antwortentwurf (Platzhalter)."
+    # Unterklasse statt Dekorator: eigene Prüfung der Argumente, feste Meldungen, kein Log mit Werten (draft_prompt.py)
+    server.add_prompt(
+        DraftPrompt(
+            name=PROMPT_NAME,
+            description=PROMPT_DESCRIPTION,
+            arguments=PROMPT_ARGUMENTS,
+            fn=build_messages,
+            policy_dir=policy_dir,
+        )
     )
-    def antwort_entwurf() -> str:
-        # MCPError statt einer einfachen Ausnahme: Das SDK ersetzt bei Prompts jede andere Ausnahme durch
-        # die Allgemeinmeldung "Error rendering prompt ..." (prompts/base.py), unser Text ginge verloren.
-        # Eine MCPError reicht es mit Code und Text unverändert an den Client durch.
-        raise MCPError(code=INTERNAL_ERROR, message=NOT_IMPLEMENTED)
 
     return server
 
@@ -390,6 +421,7 @@ def create_app(
     config: Config,
     database: ConnectionSource | None = None,
     write_database: ConnectionSource | None = None,
+    policy_dir: Path | None = None,
 ) -> ASGIApp:
     """Die App des Datenservice: Lese-App, mit Schreibkonfiguration dazu die Schreib-App hinter einer Pfadweiche.
 
@@ -397,12 +429,13 @@ def create_app(
     Schreib-App mit dem Schreib-Token auf /mcp-write. Eine übergebene `database` bzw. `write_database` hat Vorrang;
     ohne Übergabe werden sie aus `config.database_url` bzw. `config.write_database_url` gebaut (die Konstruktoren
     verbinden nicht). Ohne Lese-Datenbank antworten die Lese-Werkzeuge mit "nicht konfiguriert".
+    `policy_dir` ersetzt den Richtlinien-Ordner der Resources (nur für Tests; Standard: policies.POLICY_DIR).
     Der Schreibweg entsteht nur mit `config.write_enabled`: Ohne Schreibkonfiguration gibt es weder Schreib-App noch
     Weiche, und /mcp-write ist ein unbekannter Pfad der Lese-App; eine übergebene `write_database` allein ändert das nie.
     """
     if database is None and config.database_url is not None:
         database = Database(config.database_url)
-    read_server = create_read_server(database)
+    read_server = create_read_server(database, policy_dir)
     read_app = BearerTokenMiddleware(
         _sdk_app(read_server, STREAMABLE_HTTP_PATH, config), config.token
     )

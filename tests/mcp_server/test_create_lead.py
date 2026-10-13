@@ -606,7 +606,7 @@ def test_a_conflict_gives_the_fixed_message_and_writes_nothing(env: Env, index: 
 
 
 def test_the_fixed_messages_of_the_write_tools_are_pairwise_distinct() -> None:
-    from hoffmann_data import db, limits, server
+    from hoffmann_data import db, limits
 
     messages: dict[str, str] = {
         "limits.LEAD_CONFLICT": limits.LEAD_CONFLICT,
@@ -615,12 +615,11 @@ def test_the_fixed_messages_of_the_write_tools_are_pairwise_distinct() -> None:
         "db.NOT_CONFIGURED": db.NOT_CONFIGURED,
         "limits.CUSTOMER_NOT_FOUND": limits.CUSTOMER_NOT_FOUND,
         "limits.CONTACT_NOT_FOUND": limits.CONTACT_NOT_FOUND,
-        "server.NOT_IMPLEMENTED": server.NOT_IMPLEMENTED,
     }
     for name, value in vars(limits).items():
         if name.endswith("_INVALID") and isinstance(value, str):
             messages[f"limits.{name}"] = value
-    assert len(messages) >= 7 + 12, "die _INVALID-Meldungen der Schreib-Werkzeuge fehlen"
+    assert len(messages) >= 6 + 12, "die _INVALID-Meldungen der Schreib-Werkzeuge fehlen"
     assert all(isinstance(v, str) and v.strip() for v in messages.values())
     values = list(messages.values())
     assert len(set(values)) == len(values), "zwei Meldungen sind gleich"

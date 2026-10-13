@@ -2,7 +2,7 @@
 -- Zweck: Der Datenservice darf nur lesen (Auftrag 5.1). Die Datenbank setzt das durch, auch wenn
 -- der Code einen Fehler hat. Die Rolle hat nur SELECT auf fünf Tabellen, dazu je eine SELECT-Policy,
 -- weil Row Level Security ohne Policy keine Zeile herausgibt (schema.sql). Kein BYPASSRLS.
--- discount_rules ist bewusst nicht lesbar (kommt mit F09).
+-- discount_rules ist bewusst nicht lesbar; F09 liest die Richtlinien aus Dateien (ADR 0006).
 --
 -- Ausführen: Der Mensch führt das Skript in der Datenbank aus (Supabase SQL-Editor oder psql), im
 -- Schema der Tabellen (Standard: public). Wiederholbar: Ein zweiter Lauf ändert nichts.

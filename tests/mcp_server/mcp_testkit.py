@@ -27,7 +27,7 @@ ROLE_NAME = "data_service_ro"
 # statement_timeout), 1 GRANT USAGE, 1 REVOKE, 1 GRANT SELECT, 5 CREATE POLICY (je Tabelle eine).
 EXPECTED_ROLE_NAME_COUNT = 13
 ROLE_NAME_PATTERN = re.compile(r"[a-z_][a-z0-9_]{0,62}")
-# Tabellen, die die Rolle lesen darf (discount_rules bewusst nicht, das kommt mit F09)
+# Tabellen, die die Rolle lesen darf (discount_rules bewusst nicht; F09 liest die Richtlinien aus Dateien, ADR 0006)
 READABLE_TABLES = ("products", "product_fits", "customers", "contacts", "activities")
 
 
@@ -85,7 +85,7 @@ MCP_PATH = "/mcp"
 
 TOOL_NAMES = {"search_products", "get_product", "find_customer", "create_lead", "log_activity"}
 # Drei Lese- und zwei Schreib-Werkzeuge, alle echt (F07, F08). Die Schreib-Werkzeuge: WRITE_TOOLS weiter unten.
-# Platzhalter sind nur noch beide Resources und der Prompt auf /mcp (NOT_IMPLEMENTED).
+# Seit F09 sind auch beide Resources und der Prompt echt; NOT_IMPLEMENTED dient nur noch als Gegenprobe ("kommt nie vor").
 READ_TOOLS = {"search_products", "get_product", "find_customer"}
 PRODUCTS_JSON = ROOT / "data" / "stammdaten" / "products.json"
 RESOURCE_URIS = {"policy://tonalitaet", "policy://rabatte"}

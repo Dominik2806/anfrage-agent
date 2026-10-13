@@ -3,7 +3,7 @@
 Festlegungen:
 - /mcp (Lese-Token) listet drei Lese-Werkzeuge, beide Resources und den Prompt; /mcp-write (Schreib-Token) listet nur
   create_lead und log_activity. Beide sind echte Werkzeuge (Verhalten: test_log_activity.py seit Etappe 4b,
-  test_create_lead.py seit Etappe 4c); Platzhalter sind nur noch beide Resources und der Prompt auf /mcp.
+  test_create_lead.py seit Etappe 4c); seit F09 sind auch beide Resources und der Prompt auf /mcp echt.
 - Jedes Werkzeug ist auf dem anderen Pfad unbekannt (Ergebnis mit isError, kein Protokollfehler, nie der Platzhalterfehler
   und nie ein Datenbankzugriff). Der Schreib-Server hat keine Resources und keinen Prompt.
 - Auslegung von F06 ("listet seine Schnittstellen auf", ADR 0005, ADR-Eintrag folgt): Jeder Pfad listet seine

@@ -14,7 +14,7 @@ könnte auch schreiben, ein Fehler im Code oder in einer Eingabe träfe die Date
 1. Der Datenservice verbindet sich als Rolle `data_service_ro`. Das Skript `db/roles/data_service_ro.sql` legt sie an (ohne
    Passwort, vom Menschen ausgeführt, wiederholbar): `LOGIN`, kein Superuser (Standard einer neuen Rolle, das Skript nennt die Option nicht, die Startprüfung lehnt sie ab), kein `BYPASSRLS`,
    `default_transaction_read_only = on`, `statement_timeout = 5s`, `SELECT` auf `products`, `product_fits`, `customers`,
-   `contacts` und `activities` mit je einer `SELECT`-Policy. `discount_rules` ist für sie nicht lesbar (kommt mit F09).
+   `contacts` und `activities` mit je einer `SELECT`-Policy. `discount_rules` ist für sie nicht lesbar; F09 liest die Richtlinien aus Dateien, siehe ADR 0006.
 2. Jede Anfrage öffnet ihre eigene Verbindung (kein Pool), schreibgeschützt, mit Zeitlimit. Die URL kommt nur aus
    `MCP_SERVER_DATABASE_URL`, mit denselben `sslmode`-Regeln wie das Seed-Skript.
 3. Beim Start prüft `db.verify_read_only_role` die Rolle der Verbindung und bricht den Start ab, wenn sie mehr als lesen darf:
@@ -50,6 +50,8 @@ könnte auch schreiben, ein Fehler im Code oder in einer Eingabe träfe die Date
   hält beide gleich. Beides zusammenzuführen ist offen.
 - Nachtrag (F08): Der Schreibweg (`create_lead`, `log_activity`) ist in ADR 0005 geregelt, mit eigener Rolle, eigener Startprüfung
   und eigenem Token. Diese ADR gilt für die Lese-Werkzeuge unverändert.
+- Nachtrag (F09): `discount_rules` bleibt für die Leserolle gesperrt. Die Rabattregeln liefert `policy://rabatte` aus
+  `data/richtlinien/rabatte.md`, ohne Datenbankabfrage (ADR 0006).
 
 ### Grenzen der Startprüfung
 Die Prüfung ist eine **Momentaufnahme** beim Start: Rechte, die später vergeben werden, fallen erst beim nächsten Start auf.

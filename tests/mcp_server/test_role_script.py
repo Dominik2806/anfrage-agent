@@ -74,7 +74,9 @@ def test_role_script_grants_only_usage_and_select() -> None:
     code = _code(ROLE_SCRIPT.read_text(encoding="utf-8"))
     granted = {word.upper() for word in re.findall(r"\bGRANT\s+(\w+)", code, re.I)}
     assert granted == {"USAGE", "SELECT"}
-    assert "discount_rules" not in code, "discount_rules bleibt bis F09 ohne Zugriff"
+    assert "discount_rules" not in code, (
+        "discount_rules bleibt ohne Zugriff (F09 liest die Richtlinien aus Dateien, ADR 0006)"
+    )
     assert not re.search(r"\b(INSERT|UPDATE|DELETE|TRUNCATE)\b", code, re.I)
 
 
