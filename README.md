@@ -38,7 +38,7 @@ Der Datenservice „hoffmann-data“ (`mcp-server/`) liefert dem Agenten Katalog
 Beim Start prüft der Datenservice die Rolle. Darf sie mehr als lesen, endet der Start mit Exit-Code 1, und auf stderr stehen nur die Kurzbezeichnungen der gescheiterten Prüfungen (zum Beispiel `schreibrecht:INSERT:products`), nie URL oder Zugangsdaten. Einzelheiten: [mcp-server/README.md](mcp-server/README.md).
 
 **Schreibweg (optional):**
-1. Das Skript `db/roles/data_service_rw.sql` in der Datenbank ausführen. Es legt die Rolle `data_service_rw` an (nur `SELECT` und `INSERT` auf `customers`, `contacts` und `activities`), ohne Passwort. Auch dieses Skript nach jedem `python -m db.seed` erneut ausführen.
+1. Das Skript `db/roles/data_service_rw.sql` in der Datenbank ausführen. Es legt die Rolle `data_service_rw` an (`SELECT` und `INSERT` auf `customers` und `contacts`, auf `activities` nur `INSERT`), ohne Passwort. Auch dieses Skript nach jedem `python -m db.seed` erneut ausführen; das gilt ebenso für eine Rolle mit älterem Stand (das Skript entzieht das alte `SELECT` auf `activities`, bis dahin bricht der Start mit `Schreibweg: lesen-unerlaubt:activities` ab).
 2. Das Passwort getrennt setzen: `ALTER ROLE data_service_rw PASSWORD '<aus dem Passwortmanager>';`
 3. `MCP_SERVER_WRITE_DATABASE_URL` und `MCP_SERVER_WRITE_TOKEN` setzen (beide oder keine; das Schreib-Token muss sich vom Lese-Token unterscheiden und gehört nur dem Freigabeweg, nicht dem Agenten). Die Namen stehen in `.env.example`.
 4. Start wie oben. Der Datenservice prüft dann auch die Schreibrolle (Meldungen auf stderr mit dem Präfix `Schreibweg:`) und bedient `/mcp-write` zusätzlich zu `/mcp`.

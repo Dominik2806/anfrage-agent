@@ -46,7 +46,7 @@ Gilt zusätzlich zur CLAUDE.md im Hauptordner. Verbindlich: `docs/AUFTRAG.md` (K
 - Nur `db.py` importiert `psycopg` (geprüft per AST von `test_mcp_no_leak.py`). `DATABASE_URL` (die Variable des Seed-Skripts)
   bleibt im Paket verboten, die Variable des Datenservice heißt `MCP_SERVER_DATABASE_URL`.
 - Datenbank (ADR 0004 und 0005): Der Lesepfad liest nur, als Rolle `data_service_ro`. Der Schreibpfad legt nur an, als Rolle
-  `data_service_rw` (`SELECT` und `INSERT` auf `customers`, `contacts`, `activities`), und nur wenn `MCP_SERVER_WRITE_DATABASE_URL`
+  `data_service_rw` (`SELECT` und `INSERT` auf `customers`, `contacts`, nur `INSERT` auf `activities`), und nur wenn `MCP_SERVER_WRITE_DATABASE_URL`
   und `MCP_SERVER_WRITE_TOKEN` beide gesetzt sind. `main()` prüft beide Rollen vor dem Start (`db.verify_read_only_role`,
   `db.verify_write_role`, Aufruf über das Modul `db`). Es gibt dafür keinen Schalter und keine zusätzliche Umgebungsvariable.
 - SQL steht nur als feste Konstanten mit benannten Parametern (Text als `::text`), nie per f-String, `%`, `+` oder `.format`.

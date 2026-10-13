@@ -2,7 +2,8 @@
 
 - Status: Angenommen
 - Datum: 2026-10-10
-- Nachgeführt: 2026-10-12 (nach der Umsetzung von F08; geändert sind Punkt 5 und die Konsequenzen, ergänzt Punkt 1, 3, 5a, 5b, 6, 7 und 8)
+- Nachgeführt: 2026-10-12 (nach der Umsetzung von F08; geändert sind Punkt 5 und die Konsequenzen, ergänzt Punkt 1, 3, 5a, 5b, 6, 7 und 8);
+  2026-10-13 (Härtung der Schreibrolle: kein `SELECT` auf `activities`, Prüfung von Row Level Security; geändert sind Punkt 1 und Grenze f)
 
 ## Kontext
 F08 verlangt `create_lead` und `log_activity` (Auftrag 3.2, 4.7, 6.4). Doppelt angelegte Kunden werden verhindert,
@@ -15,15 +16,20 @@ Der Auftrag legt weder Parameter noch Rückgaben noch Fehlerfälle fest, und das
 neuen Kontakt (4.7) hat kein eigenes Werkzeug.
 
 ## Entscheidung
-1. **Eigene Schreibrolle.** Der Schreibweg verbindet sich als Rolle `data_service_rw` mit `INSERT` und `SELECT`
-   auf `customers`, `contacts` und `activities`, ohne `UPDATE`, `DELETE`, `TRUNCATE`, `BYPASSRLS`, Superuser und
-   `CREATE` (je eine `SELECT`- und eine `INSERT`-Policy, die `INSERT`-Policy mit `WITH CHECK`). Eine eigene
-   Startprüfung (`verify_write_role`) prüft: kein Superuser, kein `BYPASSRLS`, kein `CREATE` im Schema. Auf `customers`,
-   `contacts` und `activities` müssen `SELECT` und `INSERT` vorhanden sein; `UPDATE` (auch als Spaltenrecht), `DELETE` und
-   `TRUNCATE` werden abgelehnt. Auf `products`, `product_fits` und `discount_rules` werden `SELECT`, `INSERT` und `UPDATE`
-   (jeweils auch als Spaltenrecht), `DELETE` und `TRUNCATE` abgelehnt. `REFERENCES` und `TRIGGER` prüft sie nicht: Das
-   Rollenskript entzieht zuerst alles (`REVOKE ALL`) und vergibt nur `SELECT` und `INSERT`; die Prüfung fängt Rechte ab, die
-   über Mitgliedschaft oder `PUBLIC` dazukommen und das Schreiben ändern. Es gibt keinen Schalter. Die Meldungen der Prüfung
+1. **Eigene Schreibrolle.** Der Schreibweg verbindet sich als Rolle `data_service_rw` mit `SELECT` und `INSERT`
+   auf `customers` und `contacts` und nur `INSERT` auf `activities`, ohne `UPDATE`, `DELETE`, `TRUNCATE`, `BYPASSRLS`,
+   Superuser und `CREATE`. Policies: je eine `INSERT`-Policy mit `WITH CHECK` auf allen drei Tabellen, eine
+   `SELECT`-Policy auf `customers` und `contacts`. Der Schreibweg liest `activities` nie (das `INSERT` hat kein
+   `RETURNING`); ein gestohlenes Schreib-Token soll keine Aktivitätstexte lesen können. Eine eigene Startprüfung
+   (`verify_write_role`) prüft: kein Superuser, kein `BYPASSRLS`, kein `CREATE` im Schema, und Row Level Security ist auf
+   `customers`, `contacts` und `activities` aktiv (`relrowsecurity`; `relforcerowsecurity` nicht, weil die Rolle nicht
+   Eigentümerin der Tabellen ist). Auf `customers` und `contacts` müssen `SELECT` und `INSERT` vorhanden sein, auf
+   `activities` nur `INSERT`; ein `SELECT` auf `activities` (auch als Spaltenrecht) wird abgelehnt. `UPDATE` (auch als
+   Spaltenrecht), `DELETE` und `TRUNCATE` werden auf allen drei Tabellen abgelehnt. Auf `products`, `product_fits` und
+   `discount_rules` werden `SELECT`, `INSERT` und `UPDATE` (jeweils auch als Spaltenrecht), `DELETE` und `TRUNCATE`
+   abgelehnt. `REFERENCES` und `TRIGGER` prüft sie nicht: Das Rollenskript entzieht zuerst alles (`REVOKE ALL`) und vergibt
+   nur `SELECT` und `INSERT`; die Prüfung fängt Rechte ab, die über Mitgliedschaft oder `PUBLIC` dazukommen und das
+   Schreiben ändern. Geprüft werden Rechte und der RLS-Schalter, nicht der Wortlaut der Policies. Es gibt keinen Schalter. Die Meldungen der Prüfung
    stehen auf stderr mit dem Präfix `Schreibweg:` (Kurzbezeichnungen: `mcp-server/README.md`). ADR 0004
    bleibt unverändert gültig: Die Lese-Werkzeuge nutzen weiter nur `data_service_ro`. Verbindung, URL und Skript
    (`db/roles/data_service_rw.sql`) sind getrennt.
@@ -147,8 +153,7 @@ neuen Kontakt (4.7) hat kein eigenes Werkzeug.
     Proxy mit Pfadpräfix) ist nicht vorgesehen.
   - e) Schlägt `COMMIT` nach dem Senden fehl (zum Beispiel durch einen Verbindungsabbruch), kann der Eintrag schon bestehen,
     obwohl `DATABASE_ERROR` gemeldet wird.
-  - f) Die Startprüfung prüft nicht, ob Row Level Security aktiv ist, und nicht den Wortlaut der Policies. Die Prüfung auf
-    RLS kommt mit Etappe 5b; den Wortlaut der Policies sichern die Rollentests (`test_role_script_rw.py`).
+  - f) Die Startprüfung prüft nicht den Wortlaut der Policies. Den sichern die Rollentests (`test_role_script_rw.py`).
 - **Folgeänderungen (erledigt mit F08):** `mcp-server/CLAUDE.md` und `mcp-server/README.md`, die Platzhaltertests und
   `db/roles/data_service_rw.sql`. Von den vier Regeltests (`test_package_sql_rules.py`, `test_role_check.py`,
   `test_mcp_no_leak.py`, `test_limits.py`, nur vom Menschen zu ändern) wurden zwei geändert: `test_package_sql_rules.py`

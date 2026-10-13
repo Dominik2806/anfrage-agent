@@ -9,6 +9,7 @@ Platzhalter und zusammengesetzte Namen für .env, Schreibzugriffe auf Hooks und 
 * Edit-Sperre für Hooks und Einstellungen, Rückfrage vor git push und Sperre für gh pr merge
 * test-writer ohne Bash, Hook-Tests nach tests/hooks verschoben
 * Hooks erkennen Hüllen und Unterausdrücke, Platzhalter und Windows-Namensformen für .env; Schreibzugriffe auf Hooks nur noch lesend erlaubt (Positivliste); überschreibende git-Befehle blockiert; Hook-Aufrufe fehlersicher
+* F08: Die Schreibrolle `data_service_rw` liest `activities` nicht mehr (nur noch `INSERT`, keine `SELECT`-Policy darauf); die Startprüfung des Schreibwegs prüft Row Level Security (`rls-aus:<tabelle>`) und meldet ein `SELECT` auf `activities` als `lesen-unerlaubt:activities`. Für einen laufenden Betrieb: das Skript `db/roles/data_service_rw.sql` erneut ausführen (wiederholbar, es entzieht das alte `SELECT` und löscht die alte Policy `rw_select` auf `activities`); bis dahin bricht der Start mit `Schreibweg: lesen-unerlaubt:activities` ab. Das führt der Mensch aus.
 
 ### Hinzugefügt
 

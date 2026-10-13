@@ -41,9 +41,10 @@ Erprobt am 2026-10-09 gegen Supabase über den Session Pooler.
 ## Schreibrolle einspielen (optional)
 Der Schreibweg (`/mcp-write`, ADR 0005) ist nur verfügbar, wenn er konfiguriert ist. Er verbindet sich als Rolle
 `data_service_rw`; das Skript `db/roles/data_service_rw.sql` legt sie an: Anmelden erlaubt, kein Superuser, kein `BYPASSRLS`,
-`SELECT` und `INSERT` auf `customers`, `contacts` und `activities`, sonst nichts (kein `UPDATE`, kein `DELETE`, kein `TRUNCATE`,
-kein Recht auf `products`, `product_fits` und `discount_rules`), je eine `SELECT`-Policy (`rw_select`) und eine `INSERT`-Policy
-(`rw_insert`) je Tabelle. Die `INSERT`-Policies sind eng: Auf `customers` nur `status = 'lead'`, auf `activities` nur
+`SELECT` und `INSERT` auf `customers` und `contacts`, auf `activities` nur `INSERT`, sonst nichts (kein `UPDATE`, kein `DELETE`,
+kein `TRUNCATE`, kein Recht auf `products`, `product_fits` und `discount_rules`). Policies: eine `INSERT`-Policy (`rw_insert`)
+auf allen drei Tabellen, eine `SELECT`-Policy (`rw_select`) auf `customers` und `contacts`; der Schreibweg liest `activities`
+nie. Die `INSERT`-Policies sind eng: Auf `customers` nur `status = 'lead'`, auf `activities` nur
 `created_by = 'agent'`, nur die Typen `inquiry`, `complaint` und `note` und ohne Artikelbezug, auf `contacts` ohne Einschränkung.
 Jede Abfrage der Rolle hat ein Zeitlimit von 5 Sekunden. Das Skript enthält kein Passwort.
 
@@ -51,6 +52,10 @@ Jede Abfrage der Rolle hat ein Zeitlimit von 5 Sekunden. Das Skript enthält kei
 2. Das Passwort getrennt setzen: `ALTER ROLE data_service_rw PASSWORD '<aus dem Passwortmanager>';`. Es steht nie im Repository.
 3. `MCP_SERVER_WRITE_DATABASE_URL` und `MCP_SERVER_WRITE_TOKEN` setzen (siehe unten).
 4. Nach jedem `python -m db.seed` auch dieses Skript erneut ausführen, sonst scheitert die Startprüfung des Schreibwegs.
+
+Läuft die Rolle schon mit einem älteren Stand, das Skript erneut ausführen: Es ist wiederholbar, entzieht das alte `SELECT` auf
+`activities` und löscht die alte Policy `rw_select` darauf. Bis dahin bricht der Start mit `Schreibweg: lesen-unerlaubt:activities`
+ab. Das führt der Mensch aus, nicht der Coding-Agent.
 
 Bei Supabase gelten dieselben Hinweise wie oben; der Benutzer heißt `data_service_rw.<Projektkennung>`.
 
@@ -88,8 +93,8 @@ Die Datenbank bleibt die eigentliche Sperre (ADR 0004, Abschnitt „Grenzen der 
 
 ### Startprüfung der Schreibrolle
 Ist der Schreibweg konfiguriert, prüft der Datenservice nach der Leseprüfung auch die Rolle von
-`MCP_SERVER_WRITE_DATABASE_URL`: Sie darf auf `customers`, `contacts` und `activities` genau lesen und anlegen, auf `products`,
-`product_fits` und `discount_rules` nichts. Es gibt keinen Schalter. Scheitert die Prüfung, endet der Start mit Exit-Code 1, und
+`MCP_SERVER_WRITE_DATABASE_URL`: Sie darf auf `customers` und `contacts` lesen und anlegen, auf `activities` nur anlegen, auf
+`products`, `product_fits` und `discount_rules` nichts. Row Level Security muss auf `customers`, `contacts` und `activities` aktiv sein. Es gibt keinen Schalter. Scheitert die Prüfung, endet der Start mit Exit-Code 1, und
 auf stderr steht `Schreibweg:` und die Kurzbezeichnungen der gescheiterten Prüfungen, nie URL, Rollenname, Host, Benutzer,
 Datenbankname, Passwort oder Token.
 
@@ -97,15 +102,16 @@ Datenbankname, Passwort oder Token.
 |---|---|---|
 | `rolle-ist-superuser` | Die Rolle ist ein Superuser. | Die URL der Rolle `data_service_rw` verwenden. |
 | `rolle-umgeht-rls` | Die Rolle hat `BYPASSRLS`. | Eine Rolle ohne `BYPASSRLS` verwenden. |
+| `rls-aus:<tabelle>` | Row Level Security ist auf `customers`, `contacts` oder `activities` nicht aktiv. | Das Schema `db/schema.sql` prüfen; `ALTER TABLE <tabelle> ENABLE ROW LEVEL SECURITY` führt der Mensch aus. |
 | `schreibrecht:<RECHT>:<tabelle>` | Die Rolle darf `UPDATE`, `DELETE` oder `TRUNCATE` auf `customers`, `contacts` oder `activities` (`UPDATE` auch als Spaltenrecht), oder auf `products`, `product_fits` oder `discount_rules` auch `INSERT`. | Das Skript `db/roles/data_service_rw.sql` erneut ausführen (es entzieht alle Tabellenrechte und vergibt nur `SELECT` und `INSERT`), Mitgliedschaften der Rolle prüfen. |
-| `lesen-unerlaubt:<tabelle>` | Die Rolle darf `products`, `product_fits` oder `discount_rules` lesen. | Das Skript erneut ausführen. |
-| `kein-select:<tabelle>` | Die Rolle darf `customers`, `contacts` oder `activities` nicht lesen. | Das Skript erneut ausführen (üblich nach einem Seed-Reset). |
+| `lesen-unerlaubt:<tabelle>` | Die Rolle darf `activities`, `products`, `product_fits` oder `discount_rules` lesen (auch als Spaltenrecht). | Das Skript erneut ausführen. |
+| `kein-select:<tabelle>` | Die Rolle darf `customers` oder `contacts` nicht lesen. | Das Skript erneut ausführen (üblich nach einem Seed-Reset). |
 | `fehlendes-recht:INSERT:<tabelle>` | Die Rolle darf auf `customers`, `contacts` oder `activities` nicht anlegen. | Das Skript erneut ausführen. |
 | `create-im-schema` | Die Rolle darf im aktuellen Schema Objekte anlegen. | Wie bei der Leseprüfung (Tabelle oben). |
 | `tabelle-fehlt:<tabelle>` | Eine der sechs Tabellen ist über den `search_path` nicht auffindbar. | Datenbank und Schema der URL prüfen. |
 | `datenbankfehler` | Verbindung oder Abfrage sind gescheitert. | URL, Netz und Zugangsdaten prüfen. Das Log hat genau ein WARNING mit Klasse und SQLSTATE. |
 
-Die Prüfung betrachtet Rechte, nicht die Bedingungen der Policies; die engen `INSERT`-Bedingungen (Status `lead`, nur Agent, nur
+Die Prüfung betrachtet Rechte und den RLS-Schalter, nicht die Bedingungen der Policies und nicht deren Wortlaut; die engen `INSERT`-Bedingungen (Status `lead`, nur Agent, nur
 drei Typen, kein Artikelbezug) setzt die Datenbank durch.
 
 ## Umgebungsvariablen
