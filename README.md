@@ -28,7 +28,7 @@ Voraussetzung: Python 3.13 und `pip install -r requirements-dev.txt`.
 Einzelheiten: [Datenmodell, Abschnitt 4](docs/DATENMODELL.md).
 
 ## Datenservice
-Der Datenservice „hoffmann-data“ (`mcp-server/`) liefert dem Agenten Katalog und CRM zum Lesen (Endpunkt `/mcp`). Zwei Schreibwerkzeuge legen Leads und Aktivitäten an (Endpunkt `/mcp-write`, eigenes Token, eigene Rolle): Sie legen nur an und überschreiben oder löschen nichts. Voraussetzung ist eine befüllte Datenbank.
+Der Datenservice „hoffmann-data“ (`mcp-server/`) liefert dem Agenten Katalog und CRM zum Lesen (Endpunkt `/mcp`). Zwei Schreibwerkzeuge legen Leads und Aktivitäten an (Endpunkt `/mcp-write`, eigenes Token, eigene Rolle): Sie legen nur an und überschreiben oder löschen nichts. Dazu liefert er die Richtlinien als Resources und die Vorlage für den Antwortentwurf als Prompt (aus `data/richtlinien/`, Endpunkt `/mcp`). Voraussetzung ist eine befüllte Datenbank.
 
 1. Das Skript `db/roles/data_service_ro.sql` in der Datenbank ausführen. Es legt die Nur-Lese-Rolle `data_service_ro` an, ohne Passwort. Nach jedem `python -m db.seed` muss es erneut ausgeführt werden.
 2. Das Passwort der Rolle getrennt setzen: `ALTER ROLE data_service_ro PASSWORD '<aus dem Passwortmanager>';`

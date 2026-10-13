@@ -1,7 +1,8 @@
 # CLAUDE.md – mcp-server (Datenservice „hoffmann-data“)
 
 Gilt zusätzlich zur CLAUDE.md im Hauptordner. Verbindlich: `docs/AUFTRAG.md` (Kapitel 5 und 6.4), `docs/adr/0003-token-pruefung-eigene-middleware.md`,
-`docs/adr/0004-datenservice-liest-ueber-nur-lese-rolle.md`, `docs/adr/0005-schreibweg-des-datenservice.md`.
+`docs/adr/0004-datenservice-liest-ueber-nur-lese-rolle.md`, `docs/adr/0005-schreibweg-des-datenservice.md`,
+`docs/adr/0006-richtlinien-und-prompt-aus-dateien.md`.
 
 ## Aufbau
 - `hoffmann_data/config.py` – liest und prüft die Umgebung (`load_config`, `Config`, `ConfigError`), auch `MCP_SERVER_DATABASE_URL`
@@ -15,10 +16,14 @@ Gilt zusätzlich zur CLAUDE.md im Hauptordner. Verbindlich: `docs/AUFTRAG.md` (K
   `verify_write_role`, `RoleCheckError`)
 - `hoffmann_data/catalog.py` – `search_products`, `get_product`
 - `hoffmann_data/crm.py` – `find_customer`, `log_activity`, `create_lead`
-- `hoffmann_data/server.py` – die acht Schnittstellen: fünf Werkzeuge echt auf zwei Pfaden (`create_read_server` für `/mcp`,
-  `create_write_server` für `/mcp-write`), beide Resources und der Prompt Platzhalter; Host-/Origin-Schutz, `create_app`
+- `hoffmann_data/policies.py` – liest die Richtlinien aus `data/richtlinien/` (`POLICY_DIR`, je Abruf, feste Meldung
+  `POLICY_UNAVAILABLE`) und prüft sie beim Start (`verify_policies`)
+- `hoffmann_data/draft.py` – die beiden Nachrichten des Prompts als reine Funktion (`build_messages`), ohne SDK und ohne Dateizugriff
+- `hoffmann_data/draft_prompt.py` – `DraftPrompt`, Unterklasse von `Prompt` des SDK mit eigenem `render`
+- `hoffmann_data/server.py` – die acht Schnittstellen: fünf Werkzeuge auf zwei Pfaden (`create_read_server` für `/mcp`,
+  `create_write_server` für `/mcp-write`), beide Resources und der Prompt auf `/mcp`; Host-/Origin-Schutz, `create_app`
 - `hoffmann_data/__main__.py` – Start (`python -m hoffmann_data` aus diesem Ordner), prüft vor `uvicorn.run` die Datenbankrolle
-  (und, wenn konfiguriert, die Schreibrolle)
+  (und, wenn konfiguriert, die Schreibrolle) und danach die Richtlinien
 - `../db/roles/data_service_ro.sql` und `../db/roles/data_service_rw.sql` – Skripte der Nur-Lese- und der Schreibrolle (liegen
   außerhalb des Pakets, der Mensch führt sie aus)
 - Tests: `tests/mcp_server/`
@@ -30,10 +35,32 @@ Gilt zusätzlich zur CLAUDE.md im Hauptordner. Verbindlich: `docs/AUFTRAG.md` (K
   daneben anlegen, kein `custom_route` des SDKs, kein `AuthSettings`/`TokenVerifier`. Jede Route braucht das Token.
 - Das Token wird nie gekürzt oder bereinigt. Ein ungültiges Token verhindert den Start.
 - Keine Werkzeuge zum Versenden oder Löschen (Auftrag 5.1). Neue Werkzeuge nur nach Auftrag 6.4 und mit Test.
-- Keine Scheindaten. Solange eine Schnittstelle nicht umgesetzt ist (heute beide Resources und der Prompt auf `/mcp`), wirft
-  sie nur den festen Fehler „noch nicht implementiert“, ohne Eingabewerte in der Meldung.
-- Prompts werfen `MCPError` (nicht eine einfache Ausnahme): Das SDK ersetzt dort sonst jede andere Ausnahme
-  durch eine Allgemeinmeldung.
+- Keine Scheindaten. Eine Schnittstelle, die noch nicht umgesetzt ist, wirft nur einen festen Fehler „noch nicht implementiert“,
+  ohne Eingabewerte in der Meldung (heute sind alle acht umgesetzt).
+- Richtlinien (ADR 0006): Resources und Prompt lesen nur `data/richtlinien/`, je Abruf, über `policies.POLICY_DIR`. Es gibt keine
+  Umgebungsvariable dafür (`test_role_check.py` zählt die `MCP_`-Namen); Tests ersetzen den Ordner mit dem Parameter `policy_dir`
+  oder `monkeypatch`. Jeder Lesefehler ist die eine feste Meldung, ohne Pfad, Dateinamen und Ausnahmetext. `rabatte.md` und
+  `eskalation.md` stehen nie im Entwurfsprompt, Kundentext nie in Nachricht 1. `read_policy` lehnt einen Symlink ab, dessen Ziel
+  außerhalb des Ordners liegt (einer innerhalb ist erlaubt) und öffnet den aufgelösten Pfad; eine BOM wird akzeptiert (`utf-8-sig`),
+  eine Datei nur aus BOM ist leer. Ein doppelter `##`-Abschnitt in `signatur.md` ist ein Fehler (`richtlinie-abschnitt:signatur`),
+  Abschnitte werden nie zusammengeführt. Die zwei Symlink-Tests brauchen unter Windows den Entwicklermodus, sonst werden sie
+  übersprungen. `policy://rabatte` gehört nicht in den Kontext, in dem der Entwurf für den Kunden entsteht (ADR 0006, Notiz für F14).
+- Prompts: eigene Unterklasse von `Prompt` (`DraftPrompt`), registriert mit `server.add_prompt`; `render` prüft die Argumente selbst
+  und wirft nur `MCPError` (nicht eine einfache Ausnahme): Das SDK macht aus jeder anderen Ausnahme einen Fehler mit Code 0 und
+  loggt ihn samt Ursachenkette, bei einem Pydantic-Fehler mit dem Eingabewert. Der Prompt hängt an `mcp==2.3.0` (`Prompt.render`,
+  `add_prompt`); bei einem Update von `mcp` zuerst `tests/mcp_server` laufen lassen.
+- Rahmen im Prompt (`draft.py`): Es gibt sieben Marken je `n` (sechs Feldmarken und `<<<ENDE-DATEN-n>>>`); die Abschlussmarke ist ein
+  Teil von `_marks` und damit von `_free_number`. Eine Marke, die nicht von `n` abhängt, ließe `_free_number` endlos laufen. Nachricht 1
+  und die erste Zeile von Nachricht 2 nennen `n`; die Regelsätze (`RULE_FIRST_LAST`, `RULE_LOOKALIKE`, `RULE_CUSTOMER_BLOCK`) und
+  `RULE_DELIVERY` (ohne Einheit, weil `tonalitaet.md` die Einheit festlegt) stehen als Konstanten in `draft.py` und sind durch
+  `test_mcp_prompt.py` festgelegt.
+- Optionale Argumente des Prompts (`kunde`, `belegte_angaben`): fehlt der Wert oder ist er nach `strip` leer, gilt er als „keine
+  Angabe“ (`limits.check_optional_free_text`); ein Wert nur aus Steuerzeichen bleibt ungültig, `sprache` und `anfrage` leer ebenso.
+- Texte im Code (Zeichenketten, nicht Docstrings) enthalten keines der Schlüsselwörter der SQL-Regel (`INSERT`, `UPDATE`, `DELETE`,
+  `DROP`, `ALTER`, `TRUNCATE`, `GRANT`, `COPY`, `CREATE`, `MERGE`, auch nicht als deutsches Wort „Alter“) und keinen String mit
+  Präfix `MCP_`; das gilt auch für Vorspann, Prompt-Anweisungen und Fehlermeldungen (`test_package_sql_rules.py`).
+- DEBUG nie mit echten Daten: Bei DEBUG schreibt der Transport die ganze Antwort ins Log (`sse_starlette.sse`, „chunk:“), bei
+  `prompts/get` samt Kundentext, bei `policy://rabatte` samt Prozentwerten. Unser Code loggt keine Werte.
 - Host-/Origin-Schutz bleibt immer ausdrücklich gesetzt. Hosts außer Loopback nur mit `MCP_SERVER_ALLOWED_HOSTS`.
 - Transport: `stateless_http=True`, `json_response=False` (ADR 0003; F10 braucht Streaming).
 - Kein Zugriffsprotokoll von uvicorn (`access_log=False`), weil es Pfad und Query schreiben würde.
@@ -62,6 +89,10 @@ Gilt zusätzlich zur CLAUDE.md im Hauptordner. Verbindlich: `docs/AUFTRAG.md` (K
   Transaktion. Andere Fehler werden nicht wiederholt.
 - Fehlermeldungen sind fest und enthalten nie Eingabewerte, Rollenname, Host, Benutzer, Datenbankname, URL oder Passwort.
   Bekannte Ausnahme (ADR 0004, Issue #21): Fehlt ein Pflichtargument, gibt das SDK den Argument-Dict (bis etwa 50 Zeichen) zurück.
+  Zweite bekannte Ausnahme (ADR 0006, Issue #37, gleiche Klasse wie #21): Bei einer unbekannten Resource gibt das SDK die URI zurück (Meldung, `data.uri`, INFO-Log),
+  bei einem unbekannten Prompt den Namen (Meldung, ERROR-Log mit Stacktrace); beides als `xfail(strict=True)` in
+  `test_mcp_policy_no_leak.py`. Auf `/mcp-write` (keine Resources, keine Prompts) läuft ein solcher Aufruf durch dieselbe
+  SDK-Behandlung; die Tests dort prüfen nur den Fehler, nicht ein Echo des Werts.
   Das Log nennt bei Datenbankfehlern nur Klasse und SQLSTATE.
 - Eingaben prüft `limits.py`, bevor die Datenbank berührt wird. Textparameter der Werkzeuge sind
   `Annotated[Any, WithJsonSchema(...)]` mit eigener Prüfung, weil das SDK bei Pydantic-Fehlern den Eingabewert zurückgibt.

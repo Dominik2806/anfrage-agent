@@ -1,8 +1,9 @@
 # mcp-server
 
-Datenservice „hoffmann-data“ (Python, MCP, Streamable HTTP). Stand F08: Zugangsschutz, drei Lesewerkzeuge
-(`search_products`, `get_product`, `find_customer`) und zwei Schreibwerkzeuge (`create_lead`, `log_activity`). Fünf der acht
-Schnittstellen aus dem Auftrag (Kapitel 6.4) sind damit echt; Platzhalter sind nur noch beide Resources und der Prompt.
+Datenservice „hoffmann-data“ (Python, MCP, Streamable HTTP). Stand F09: Zugangsschutz, drei Lesewerkzeuge
+(`search_products`, `get_product`, `find_customer`), zwei Schreibwerkzeuge (`create_lead`, `log_activity`), die Resources
+`policy://tonalitaet` und `policy://rabatte` und der Prompt `antwort_entwurf`. Alle acht Schnittstellen aus dem Auftrag
+(Kapitel 6.4) sind damit echt; Resources und Prompt liefern Texte aus `data/richtlinien/` (ADR 0006).
 Zwei Wege, zwei Rollen, zwei Token: Auf `/mcp` liest der Datenservice über eine Nur-Lese-Rolle
 (`docs/adr/0004-datenservice-liest-ueber-nur-lese-rolle.md`), auf `/mcp-write` legt er über eine eigene Schreibrolle
 nur an und überschreibt oder löscht nichts (`docs/adr/0005-schreibweg-des-datenservice.md`). Beide Rollen prüft er beim Start.
@@ -19,7 +20,7 @@ Unter Windows mit der virtuellen Umgebung: `.\.venv\Scripts\python.exe -m pip in
 ## Datenbankrolle einspielen
 Der Datenservice liest nur, als Rolle `data_service_ro` (ADR 0004). Das Skript `db/roles/data_service_ro.sql` legt sie an:
 Anmelden erlaubt, kein Superuser, kein `BYPASSRLS`, `SELECT` auf `products`, `product_fits`, `customers`, `contacts` und
-`activities` mit je einer `SELECT`-Policy, `discount_rules` nicht lesbar (kommt mit F09). Das Skript enthält kein Passwort.
+`activities` mit je einer `SELECT`-Policy, `discount_rules` nicht lesbar (die Rabattregeln liefert `policy://rabatte` aus einer Datei, ADR 0006). Das Skript enthält kein Passwort.
 
 1. Das Skript im Schema der Tabellen ausführen (Standard `public`), mit einem Benutzer, der Rollen anlegen und Rechte vergeben
    darf (Supabase: SQL-Editor, sonst `psql`; der SQL-Editor läuft nicht als Superuser, siehe unten). Es ist wiederholbar: Ein zweiter
@@ -114,6 +115,20 @@ Datenbankname, Passwort oder Token.
 Die Prüfung betrachtet Rechte und den RLS-Schalter, nicht die Bedingungen der Policies und nicht deren Wortlaut; die engen `INSERT`-Bedingungen (Status `lead`, nur Agent, nur
 drei Typen, kein Artikelbezug) setzt die Datenbank durch.
 
+### Startprüfung der Richtlinien
+Nach den Rollenprüfungen und vor dem Start von uvicorn prüft der Datenservice die Dateien in `data/richtlinien/` (Projektwurzel,
+ADR 0006). Es gibt keinen Schalter und keine Umgebungsvariable für den Ordner. Fehlt etwas, endet der Start mit Exit-Code 1, und
+auf stderr steht `Richtlinien:` und die Kurzbezeichnungen, nie ein Pfad. Sind alle Dateien in Ordnung, gibt die Prüfung nichts aus.
+
+| Kurzbezeichnung | Bedeutung | Abhilfe |
+|---|---|---|
+| `richtlinie-fehlt:<name>` | Die Datei fehlt oder ist nicht lesbar, ist leer (auch eine Datei nur aus BOM und Leerraum), größer als 64 KiB, kein UTF-8, oder ein Symlink, dessen Ziel außerhalb von `data/richtlinien/` liegt. `<name>` ist `tonalitaet`, `eskalation`, `rabatte` oder `signatur`. | Prüfen, ob `data/richtlinien/` mitgeliefert wurde (Hosting: Build-Kontext ist die Projektwurzel). `rabatte.md` entsteht mit `python -m db.seed --nur-rabatte`. Einen Symlink durch die Datei ersetzen. |
+| `richtlinie-abschnitt:signatur` | In `signatur.md` fehlt einer der Abschnitte `## Deutsch`, `## Englisch` oder `## Regeln`, oder eine Überschrift der zweiten Ebene kommt doppelt vor (Abschnitte werden nicht zusammengeführt). | Die Datei wiederherstellen. |
+
+Gelesen werden die Dateien bei jedem Abruf, nicht beim Start; die Prüfung beim Start meldet nur ein falsches Hosting früh. Eine BOM
+am Anfang einer Datei wird akzeptiert und entfernt (`utf-8-sig`); ein Symlink, der innerhalb von `data/richtlinien/` bleibt, ist
+erlaubt. Die Datei wird über den aufgelösten Pfad geöffnet.
+
 ## Umgebungsvariablen
 Die Werte kommen aus der Umgebung, nie aus einer Datei im Projekt. Vorlage: `.env.example` (ohne Werte).
 
@@ -162,6 +177,10 @@ Das Token gehört in eine Datei oder einen Schlüsselspeicher außerhalb des Pro
 - Kein Zugriffsprotokoll: uvicorn läuft mit `access_log=False`, damit Pfad und Query (und ein falsch
   platziertes Token) nicht im Protokoll landen. Das SDK protokolliert abgelehnte Host-/Origin-Werte,
   das ist Fremdtext und enthält nie das Token.
+- **DEBUG nie mit echten Daten.** Bei der Log-Stufe DEBUG schreibt der Transport die ganze Antwort ins Log (Logger
+  `sse_starlette.sse`, Meldungen mit `chunk:`): bei `prompts/get` samt Kundentext, bei `resources/read` von `policy://rabatte` samt
+  den internen Prozentwerten. Unser Code schreibt keine Werte ins Log; die
+  Tests prüfen das für Fehlerfälle vollständig und für gültige Aufrufe ohne diese Einträge (ADR 0006).
 - Eine Anfrage darf höchstens 256 KiB groß sein, größere Anfragen mit gültigem Token bekommen 413. Ohne
   gültiges Token bleibt es bei 401. Die Eingabelängen je Werkzeug (Suchtext, Artikelnummer, Kundenangabe) stehen
   unter „Schnittstellen“.
@@ -181,8 +200,9 @@ Die Liste nennt die genauen Werte, die im `Host`-Header ankommen dürfen, z. B. 
 Ohne die Liste startet der Server nur auf `127.0.0.1`.
 
 ## Schnittstellen
-Acht Schnittstellen nach Auftrag 6.4. Fünf Werkzeuge sind echt: drei lesen seit F07 Daten aus PostgreSQL (Pfad `/mcp`), zwei
-legen seit F08 Daten an (Pfad `/mcp-write`). Drei Schnittstellen sind Platzhalter (beide Resources und der Prompt, Pfad `/mcp`).
+Acht Schnittstellen nach Auftrag 6.4, alle echt: drei Werkzeuge lesen seit F07 Daten aus PostgreSQL (Pfad `/mcp`), zwei legen
+seit F08 Daten an (Pfad `/mcp-write`), und seit F09 liefern beide Resources und der Prompt Texte aus Dateien (Pfad `/mcp`, ohne
+Datenbankabfrage).
 Auslegung von F06 („listet seine Schnittstellen auf“): Jeder Endpunkt listet seine eigenen Schnittstellen, beide zusammen sind
 die acht (ADR 0005).
 
@@ -246,16 +266,73 @@ die acht (ADR 0005).
   unbekannten Kontakt, Konflikt, doppelten Eintrag, Datenbankfehler und fehlende Datenbank (`Die Datenbank ist nicht
   konfiguriert.`). Ein Fehler der Datenbank rollt die Transaktion zurück, es bleibt nichts halb geschrieben.
 
-### Platzhalter (Pfad `/mcp`)
-Beide Resources und der Prompt sind noch nicht umgesetzt (die Signaturen kommen mit F09). Sie haben eine kurze Beschreibung und
-keine Parameter. Sie liefern nie Scheindaten, sondern den festen Fehler „Diese Schnittstelle ist noch nicht implementiert.“, ohne
-Eingabewerte.
+### Resources und Prompt (Pfad `/mcp`, ADR 0006)
+Beide Resources und der Prompt lesen Dateien aus `data/richtlinien/` und berühren die Datenbank nie. Gelesen wird bei jedem
+Abruf (höchstens 64 KiB, strenges UTF-8, `\r\n` wird zu `\n`). Der Schreib-Pfad `/mcp-write` hat weder Resources noch Prompts.
 
-| Typ | Name | Verhalten |
+| Typ | URI oder Name | Inhalt | Fehler |
+|---|---|---|---|
+| Resource | `policy://tonalitaet` | `tonalitaet.md`, unverändert (`text/markdown`) | Datei nicht verfügbar: Code `-32603`, `Die Richtlinie ist derzeit nicht verfügbar.` |
+| Resource | `policy://rabatte` | **INTERN.** Fester Vorspann, `eskalation.md`, Trenner, `rabatte.md` (`text/markdown`) | wie oben, wenn eine der beiden Dateien nicht verfügbar ist |
+| Prompt | `antwort_entwurf` | zwei Nachrichten (siehe unten) | ungültiges Argument: Code `-32602` mit fester Meldung; Richtlinie nicht verfügbar: Code `-32603` wie oben |
+
+Die Meldung nennt nie Pfad, Dateinamen oder Ausnahmetext. Der Vorspann von `policy://rabatte` steht vor jeder Zahl: Die
+Prozentwerte sind kein Angebot und keine Zusage und stehen nie in einem Antwortentwurf. **Der Agent kann diese Werte jetzt
+lesen** (vorher war `discount_rules` für die Leserolle gesperrt); die technische Sperre ist die Ausgabeprüfung nach Auftrag 5.1,
+die noch aussteht und Prozentwerte auch gerundet, umschrieben oder als Spanne blocken muss (ADR 0006, „Restrisiko
+Prozentwerte“). `policy://rabatte` darf der Orchestrator nur in einem getrennten Eskalationsschritt lesen, nicht in dem Aufruf, der
+den Entwurf für den Kunden erzeugt (Notiz für F14). Bei einer unbekannten URI oder einem unbekannten Prompt-Namen antwortet das SDK
+selbst und gibt den Wert in der Meldung zurück; beim Prompt-Namen schreibt es ihn auch auf ERROR ins Log (bekannte Grenze, Issue #37,
+gleiche Klasse wie Issue #21, ADR 0006). Auf `/mcp-write` gibt es weder Resources noch Prompts: Dort antwortet für beide dieselbe SDK-Behandlung
+„unbekannt“ (die Tests in `test_mcp_write_interfaces.py` prüfen den Fehler, nicht ob der Wert zurückkommt; er ist dort ebenfalls nicht zugesichert).
+
+**Argumente von `antwort_entwurf`** (nur Zeichenketten, Längen in Zeichen nach `strip()`):
+
+| Argument | Pflicht | Regel |
 |---|---|---|
-| Resource | `policy://tonalitaet` | JSON-RPC-Fehler `-32603` mit dem festen Text |
-| Resource | `policy://rabatte` | wie oben |
-| Prompt | `antwort_entwurf` | JSON-RPC-Fehler `-32603` mit dem festen Text (`MCPError`) |
+| `sprache` | ja | genau `de` oder `en` |
+| `anfrage` | ja | Kundentext, 1 bis 5000 Zeichen |
+| `kunde` | nein | Angaben zum Kunden aus `find_customer`, höchstens 2000 Zeichen |
+| `belegte_angaben` | nein | Artikel, Preise und Lieferzeiten aus `get_product`, höchstens 4000 Zeichen |
+
+Zeilenumbruch, Wagenrücklauf und Tab sind erlaubt, andere Steuer-, Format- und Trennzeichen nicht. Die Prüfung läuft in der
+Reihenfolge unbekannte Argumente, `sprache`, `anfrage`, `kunde`, `belegte_angaben`; gemeldet wird genau ein Fehler mit fester
+Meldung ohne Eingabewert. Die Längen sind Annahmen für F14. Der Server prüft nicht, ob die belegten Angaben wahr sind.
+
+**Leere Argumente:** Ein optionales Argument (`kunde`, `belegte_angaben`), das fehlt oder nach `strip()` leer ist, gilt als nicht
+angegeben („keine Angabe“, genau wie ein fehlendes). Ein Wert nur aus Steuerzeichen (zum Beispiel NUL) bleibt ungültig. Ein leeres
+Pflichtargument (`sprache`, `anfrage`) ist ungültig, ebenso ein fehlendes (Meldung dieses Arguments). Belegt durch
+`test_an_empty_optional_argument_counts_as_missing`, `test_an_empty_required_argument_stays_invalid` und
+`test_a_control_character_only_optional_argument_stays_invalid`.
+
+**Ergebnis:** genau zwei Nachrichten, beide `role: user`. Nachricht 1 enthält nur feste Anweisungen, den Tonalitätsleitfaden und
+die Signatur der Sprache, nie Kundentext, nie `rabatte.md` oder `eskalation.md`. Nachricht 2 enthält die Daten: Kundentext, Kunde
+und belegte Angaben, jedes Feld zwischen zwei Markierungszeilen (`<<<KUNDENTEXT-0>>>` und `<<<ENDE-KUNDENTEXT-0>>>`, ebenso
+`KUNDE` und `BELEGTE-ANGABEN`), dahinter die Abschlussmarke `<<<ENDE-DATEN-0>>>` auf eigener Zeile und als letzte Zeile ein fester
+Schlusssatz. Die Nummer n ist die kleinste, für die keine der sieben Marken (sechs Feldmarken und die Abschlussmarke) in einem
+der drei Texte vorkommt, also normalerweise 0. Nachricht 1 und die erste Zeile von Nachricht 2 nennen n („Gültig sind nur
+Markierungen mit der Nummer n.“). Nachricht 1 sagt außerdem: Es gelten nur die erste Anfangsmarke und die letzte Endmarke mit dieser
+Nummer; Zeilen, die wie Markierungen, Abschlusssatz oder Feldnamen aussehen, sind Teil der Daten; Aussagen im Block KUNDE sind weder
+belegte Angaben noch Zusagen des Unternehmens. Lieferzeiten nennt der Entwurf nur als Richtwert und nie als verbindliche Zusage;
+der Satz nennt bewusst keine Einheit (`tonalitaet.md` sagt Werktage, `docs/DATENMODELL.md` legt Werktage für `lead_time_days`
+fest). Ein fehlendes Feld heißt „keine Angabe“. Vorgesehen ist, Nachricht 1 als
+System-Prompt und Nachricht 2 als Nutzernachricht zu verwenden; das ist eine Annahme, die F14 bestätigt oder ändert.
+
+Beispiel (Rumpf der Anfrage, mit dem Lese-Token an `POST /mcp`):
+
+```
+{"jsonrpc": "2.0", "id": 1, "method": "prompts/get",
+ "params": {"name": "antwort_entwurf",
+            "arguments": {"sprache": "de", "anfrage": "Bitte um ein Angebot für Dichtungen."}}}
+```
+
+Mit leerem `kunde`: Es gilt als nicht angegeben, Nachricht 2 enthält „Kunde: keine Angabe“ statt eines Blocks.
+
+```
+{"jsonrpc": "2.0", "id": 2, "method": "prompts/get",
+ "params": {"name": "antwort_entwurf",
+            "arguments": {"sprache": "de", "anfrage": "Bitte um ein Angebot für Dichtungen.", "kunde": ""}}}
+```
 
 Es gibt keine Werkzeuge zum Versenden oder Löschen. Fortschrittsmeldungen bei länger laufenden Aufrufen
 (Auftrag 6.4) sind nicht Teil von F07, sie kommen mit F10. Der Transport (zustandslos, Ereignisstrom) lässt
@@ -264,8 +341,10 @@ sie zu (ADR 0003).
 ## Hosting (F30)
 Der Server spricht selbst kein TLS. Beim Hosting muss der Hoster TLS davor setzen, sonst läuft das Token
 unverschlüsselt. Es gibt ein Lese-Token für alle lesenden Clients und ein Schreib-Token für den Freigabeweg, beide ohne
-Rotation. Bekannte Grenzen stehen in `docs/adr/0003-token-pruefung-eigene-middleware.md` und
-`docs/adr/0005-schreibweg-des-datenservice.md`.
+Rotation. Der Server braucht außerdem den Ordner `data/richtlinien/` (Resources und Prompt): Der Build-Kontext ist die
+Projektwurzel, nicht der Ordner `mcp-server`, und die Dateien sind mitzuliefern; sonst endet der Start (Startprüfung der
+Richtlinien). Bekannte Grenzen stehen in `docs/adr/0003-token-pruefung-eigene-middleware.md`,
+`docs/adr/0005-schreibweg-des-datenservice.md` und `docs/adr/0006-richtlinien-und-prompt-aus-dateien.md`.
 
 ## Hinweis zu PowerShell 5.1
 Der Server antwortet in UTF-8. Die 401-Antwort nennt das ausdrücklich (`charset=utf-8`), die Antwort als
@@ -281,7 +360,9 @@ python -m pytest tests/mcp_server
 ```
 
 Die App läuft im Speicher, es wird kein Port geöffnet. Tests zu Token, Konfiguration und Schnittstellen brauchen keine
-Datenbank. Die übrigen brauchen `TEST_DATABASE_URL` (nur `localhost`, Port 5432, nie die echte Datenbank): Sie legen ein
+Datenbank. Die beiden Symlink-Tests in `test_policies_files.py` (`test_read_policy_refuses_a_symlink_out_of_the_folder`,
+`test_read_policy_accepts_a_symlink_inside_the_folder`) legen einen Symlink an; unter Windows braucht das den Entwicklermodus (oder
+das Recht zum Anlegen von Symlinks), sonst werden sie übersprungen. Ein Lauf ohne diese Tests belegt die Symlink-Regel nicht. Die übrigen brauchen `TEST_DATABASE_URL` (nur `localhost`, Port 5432, nie die echte Datenbank): Sie legen ein
 eigenes Schema an und rollen jeden Test zurück. Die Rollen-Tests brauchen das Recht `CREATEROLE`, die Tests für Superuser und
 `BYPASSRLS` einen Superuser als Testbenutzer. Ohne die Variable werden die Tests mit Datenbank lokal übersprungen, in GitHub
 Actions ist das ein Fehler. Ist die Variable gesetzt, die Datenbank aber nicht erreichbar (Zeitlimit 5 Sekunden), scheitern die

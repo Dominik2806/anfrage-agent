@@ -16,6 +16,122 @@ und welche Konsequenz daraus folgte. Neueste Einträge stehen oben.
 
 ## Einträge
 
+### 2026-10-13 · F09 · Mutationsskript: Endlosschleife durch eine zu allgemein beschriebene Mutation (Auftrag vom KI-Assistenten im Chat, Umsetzung von Claude Code)
+- **Aufgabe:** Das Mutationsskript für die Nachbesserung um Mutationen M42 bis M62 erweitern. Eine davon lautete „Abschlussmarke immer
+  mit Nummer 0“.
+- **Verhalten des Agenten:** Der Auftrag des KI-Assistenten im Chat beschrieb die Mutation nur allgemein und nannte die Stelle nicht. Claude
+  Code verankerte sie in `_closing_mark` (`return f"<<<ENDE-DATEN-{n}>>>"` → feste Nummer 0), ohne zu prüfen, wo `_closing_mark` benutzt
+  wird. Beim Lauf blieb das Skript hängen, der Rechner war ausgelastet (Angabe des Menschen).
+- **Fehler:** `_marks` nimmt `_closing_mark(n)` auf, und `_free_number` erhöht `n`, solange irgendeine Marke im Text vorkommt. Hängt
+  eine Marke nicht mehr von `n` ab und steht sie im Eingabetext (die Fälschungs-Tests tun das), endet die Schleife nie. Claude Code
+  hatte die Verwendung von `_closing_mark` vor dem Lauf nicht auf diese Schleife geprüft.
+- **Entdeckung:** Lauf des Menschen: Das Skript hing bei der Mutation.
+- **Korrektur:** Die Mutation ist neu verankert (nur die ausgegebene Abschlussmarke in `build_messages` trägt die feste Nummer 0;
+  `_closing_mark`, `_marks` und `_free_number` bleiben unverändert). Das Skript hat ein Zeitlimit je Mutation (`-TimeoutSeconds`, Standard
+  300, der Prozessbaum wird beendet; ein Hängen zählt als Erkennung, Ergebnis „rot (Zeitlimit)“) und stellt die Datei auch bei Strg+C aus den
+  Originalbytes wieder her (Byte-Hash).
+- **Konsequenz:** Eine Mutation, die einen Wert ändert, von dem eine Schleifenbedingung abhängt, wird vor dem Lauf auf die Schleife
+  geprüft. Jeder Testlauf eines Mutationsskripts hat ein Zeitlimit.
+
+### 2026-10-13 · F09 · Mutationsprüfung von 41 auf 62 Mutationen (Mutationen M42 bis M62 für die Nachbesserung)
+- **Aufgabe:** Belegen, dass die Tests der Nachbesserung (Rahmennummer, Abschlussmarke, Regelsätze, „leer = fehlt“, Symlink, BOM,
+  Doppelabschnitt, Vorspann) die Änderungen wirklich festhalten.
+- **Verhalten des Agenten:** Zu den 41 bisherigen Mutationen kamen M42 bis M62 (je eine Stelle in `draft.py`, `limits.py`,
+  `draft_prompt.py` oder `policies.py`, der erwartete Test steht als Kommentar im Skript). Vier der alten Mutationen mussten neu
+  verankert werden, weil die Stellen im Code ersetzt wurden. Das Skript bricht bei einem nicht gefundenen oder mehrfach vorkommenden Anker
+  vor dem ersten Testlauf ab (Meldung „Anker nicht gefunden: Mxx“).
+- **Fehler:** Kein Fehler im Paketcode. Befund zum Vorgehen: siehe den Eintrag zur Endlosschleife (M51).
+- **Entdeckung:** Läufe des Menschen. Nach Angabe des Menschen sind alle 62 Mutationen rot. Die zwei Symlink-Tests brauchen unter
+  Windows den Entwicklermodus, sonst werden sie übersprungen und die zugehörigen Mutationen überleben.
+- **Korrektur:** Keine nötig.
+- **Konsequenz:** Wer `policies.py` (Symlink-Prüfung) ändert, lässt die Tests mit Entwicklermodus laufen.
+
+### 2026-10-13 · F09 · Befunde der Reviews zu Resources und Prompt (Befunde von security-reviewer / code-reviewer)
+- **Aufgabe:** Review von F09 vor dem Pull Request: zwei Agenten ohne Kenntnis der Arbeit, ein Sicherheits-Review und ein Code-Review. Die
+  Befunde bewertete der Mensch, danach wurden sie zuerst als Tests festgehalten (Stufe 1) und dann im Code umgesetzt (Stufe 2).
+- **Verhalten des Agenten:** Resources und Prompt waren umgesetzt, die Tests grün. Keine kritischen Befunde. Umgesetzt wurden: die
+  Rahmennummer in beiden Nachrichten, die Regelsätze (nur erste Anfangs- und letzte Endmarke mit dieser Nummer, Zeilen, die wie
+  Markierungen aussehen, sind Daten, der Block KUNDE ist keine Quelle und keine Zusage), eine eigene Abschlussmarke `<<<ENDE-DATEN-n>>>`
+  als vierter Markentyp, der Lieferzeit-Satz ohne Einheit, „leer = fehlt“ für `kunde` und `belegte_angaben` (leere Pflichtargumente
+  bleiben ungültig), Symlinks aus dem Richtlinien-Ordner heraus werden abgelehnt (innerhalb erlaubt), eine BOM wird akzeptiert, eine
+  unbekannte Sprache in `signature_section` ist `PolicyError`, ein doppelter `##`-Abschnitt in `signatur.md` ist ein Fehler, der
+  Vorspann von `policy://rabatte` nennt zusätzlich „gerundet, umschrieben oder als Spanne“. Nicht umgesetzt: die doppelten Fixtures der
+  Tests zusammenlegen, eine Fabrik statt `fn=build_messages`, ein Helfer für die Ordnerauflösung, ein Test für Threads.
+- **Fehler:** Die Befunde betreffen eine Rahmung, die n nicht nannte und deren Schlusssatz im Kundentext nachbildbar war, ein Prompt, der
+  `kunde=""` als Fehler behandelte, einen Lader ohne Prüfung von Symlinks, BOM und doppelten Abschnitten, einen Test mit schwacher
+  Zusicherung (Nicht-Text-Argument: „Status >= 400“ statt genau 200 und Code −32602), doppelte Tests und veraltete Köpfe („Rot, bis …“).
+  Dazu kam ein Widerspruch im Prompt (Einheit der Lieferzeit: der Satz in `draft.py` sagte „Werktagen“, der Katalogtext „in Tagen“).
+- **Entdeckung:** Reviews durch die zwei Agenten (mit Datei, Zeile, Schwere, Beleg und Testvorschlag); die Bewertung des Menschen.
+- **Korrektur:** Siehe oben; ADR 0006 und die Doku sind nachgeführt. Der Lieferzeit-Satz nennt keine Einheit, `docs/DATENMODELL.md`
+  legt Werktage fest. Offen: `server.py:96` sagt „in Tagen“.
+- **Konsequenz:** Kundentext-Rahmen immer mit der geltenden Nummer in beiden Nachrichten und mit einer eigenen, nummerierten
+  Abschlussmarke. Optionale Argumente: Verhalten bei leerem Wert festlegen und testen. Dateien, die der Dienst liest, auf Symlinks, BOM
+  und doppelte Abschnitte prüfen.
+
+### 2026-10-13 · F09 · Mutationsprüfung von Resources und Prompt: zwei Mutationen überlebten, ein Test war zu schwach (Test von Claude Code, Mutation M14 vom KI-Assistenten im Chat)
+- **Aufgabe:** Belegen, dass die Tests die Schutzmechanismen von F09 festhalten. 41 Mutationen: Ein Skript des Menschen (außerhalb des
+  Repositories) wandte jede einzeln an, führte die zugehörigen Tests aus und stellte die Datei danach zurück.
+- **Verhalten des Agenten:** Im ersten Lauf (39 Mutationen) wurden 37 von den Tests bemerkt, 2 überlebten. M13 („der Start-Check druckt
+  bei Erfolg“): Der Test `test_start_with_the_real_policy_files_serves_and_prints_nothing_about_them` prüfte nur, dass `uvicorn.run`
+  einmal aufgerufen wird und dass in stdout und stderr das Wort „richtlinie“ nicht vorkommt; ein `print` mit anderem Text blieb
+  unbemerkt. M14 („die Resource ruft die Datenbank“): Die Mutation des KI-Assistenten im Chat rief `connection()` nur auf, ohne den
+  Kontext zu betreten, und löste daher keinen Zugriff aus. Danach kamen M40 und M41 dazu (Resource und Prompt am Schreib-Server), die
+  von je drei Tests bemerkt wurden.
+- **Fehler:** Zu M13: Der Test war zu schwach. Er prüfte ein Stichwort statt der beiden Kanäle. Zu M14: Die Mutation war zu schwach,
+  nicht der Test.
+- **Entdeckung:** Läufe des Menschen (Skript über alle Mutationen).
+- **Korrektur:** M13: Der Test lässt `main()` bis `uvicorn.run` durchlaufen und prüft stdout und stderr auf exakt leer (`out == ""`
+  und `err == ""`); danach war die Mutation rot. M14: Die stärkere Mutation betritt den Kontext; sie machte
+  `test_resources_never_touch_the_database` rot. Am Ende waren alle 41 Mutationen rot.
+- **Konsequenz:** Ein Test auf „gibt nichts aus“ prüft beide Kanäle exakt, nicht ein Stichwort. Eine Mutation muss den Pfad wirklich
+  ausführen (den Kontext betreten), sonst belegt sie nichts.
+
+### 2026-10-13 · F09 · Nicht-Text-Argument als `xfail(strict=True)` angelegt, das SDK spiegelt es nicht (Test von Claude Code)
+- **Aufgabe:** Tests für Resources und Prompt `antwort_entwurf` schreiben (Etappe 1), darunter die bekannten Grenzen des SDK beim
+  Spiegeln von Eingabewerten.
+- **Verhalten des Agenten:** Der Test mit einem Nicht-Text-Argument im Prompt war als `xfail(strict=True)` angelegt, in der Annahme,
+  das SDK spiegele den Wert.
+- **Fehler:** Die Annahme kam aus dem Lesen des SDK-Quelltexts und war nicht mit einem Test belegt, obwohl `mcp-server/CLAUDE.md` das
+  verlangt („Verhalten des SDKs nicht aus einer Stelle im Quelltext folgern, sondern mit einem Test belegen“). Das Protokoll weist ein
+  Nicht-Text-Argument schon vorher ab (`arguments` ist `dict[str, str]`, Fehlercode −32602, ohne Wert und ohne Log-Eintrag); der Test
+  war deshalb ein XPASS und wegen `strict=True` rot.
+- **Entdeckung:** Lauf des Menschen: der Test schlug als XPASS fehl.
+- **Korrektur:** Der Test ist ein normaler Test ohne `xfail` (`test_mcp_prompt.py`, `test_mcp_policy_no_leak.py`). Als `xfail`
+  bleiben nur die zwei Fälle, die ein Test belegt hat (unbekannte URI und unbekannter Prompt-Name).
+- **Konsequenz:** Eine Grenze des SDK erst als bekannte Grenze oder `xfail` festhalten, wenn ein Lauf sie belegt hat; vorher ein
+  gewöhnlicher Test, dessen Ergebnis entscheidet.
+
+### 2026-10-13 · F09 · Fehlalarm: Vermutung zum fehlenden Pflichtargument des Prompts (Vermutung vom KI-Assistenten im Chat)
+- **Aufgabe:** Das Verhalten des SDK beim Prompt `antwort_entwurf` klären, nachdem ein Log mit einer Pydantic-Kette aufgefallen war.
+- **Verhalten des Agenten:** Der KI-Assistent im Chat (nicht Claude Code) vermutete, ein fehlendes Pflichtargument schreibe die
+  übrigen Argumente ins Log.
+- **Fehler:** Die Vermutung stimmte nicht. Bei einem fehlenden Pflichtargument nennt die SDK-Meldung nur den Namen des Arguments,
+  nicht den Wert. Das Problem dort ist ein anderes: Code 0 und ein eigener SDK-Text statt einer festen Meldung.
+- **Entdeckung:** Claude Code las die Quelle des SDK und fand dabei das echte Leck: Ein unbekanntes Zusatzargument lässt die
+  Pydantic-Prüfung scheitern, und die Ursachenkette mit dem Eingabewert steht im ERROR-Log.
+- **Korrektur:** Der Prompt ist eine Unterklasse von `Prompt` (`DraftPrompt`), die die Argumente selbst prüft und nur `MCPError` mit
+  fester Meldung wirft. Die Begründung in ADR 0006 nennt nur die belegten Gründe: Code 0 mit SDK-Text, `required` im Listing und die
+  Pydantic-Kette mit dem Wert beim unbekannten Argument. Tests: `test_mcp_prompt.py`, `test_mcp_policy_no_leak.py`.
+- **Konsequenz:** Eine Vermutung zum SDK wird vor dem Umbau belegt (Lesen der Quelle, dann ein Test), nicht übernommen.
+
+### 2026-10-13 · F09 · Test auf den Dateinamen in der Fehlermeldung suchte zu weit, und „vollständig grün“ gemeldet (Test von Claude Code)
+- **Aufgabe:** Test, dass bei einer fehlenden Richtliniendatei nur die Resources die feste Meldung liefern, die die Datei brauchen
+  (`test_a_missing_file_gives_the_fixed_message_only_for_the_resources_that_need_it`), und dass dabei kein Pfad und kein Dateiname in
+  Antwort, Log, stdout oder stderr stehen.
+- **Verhalten des Agenten:** Der Test rief mehrere Resources nacheinander auf und suchte Pfad, Ordner und Dateinamen im gesamten
+  gesammelten Ergebnis: auch in den Antworten der Resources, die erfolgreich lieferten, und in Log-Einträgen früherer Aufrufe. Nach
+  Etappe 2a meldete ich die Erwartung, `tests/mcp_server` sei vollständig grün.
+- **Fehler:** Der Suchbereich war zu weit. Ein Treffer in einem legitimen Text einer erfolgreichen Resource oder in einem früheren
+  Aufruf konnte den Test rot machen, ohne dass eine Fehlermeldung etwas verriet. Die Erwartung „vollständig grün“ hatte ich nicht
+  gegen diesen Test geprüft, der Fehler lag aber im Test, nicht im Paket.
+- **Entdeckung:** Lauf des Menschen nach Etappe 2a (der Test war rot).
+- **Korrektur:** Mit ausdrücklicher Freigabe des Menschen: Jede fehlerhafte Resource wird einzeln aufgerufen, davor `caplog.clear()`
+  und `capsys.readouterr()`; geprüft werden nur deren Fehlerantwort, Log und Ausgabe auf Pfad, Ordner und Dateiname. Die übrigen
+  Resources werden nur auf ihren erwarteten Text geprüft, bei fehlender `signatur.md` liefern beide Resources erfolgreich. Die
+  Mutation „Pfad in die Meldung“ macht den Test weiter rot.
+- **Konsequenz:** Ein Test auf „steht nirgends“ sucht nur im Ergebnis des einen geprüften Aufrufs, mit zuvor geleertem Log. Vor einer
+  Aussage „grün“ den Lauf abwarten; erwartet wird nur, was ein Lauf gezeigt hat.
+
 ### 2026-10-12 · F08 · Mutationsprüfung von create_lead: alle Mutationen bemerkt, eine Bedingung hängt an einem einzigen Test (Test von Claude Code)
 - **Aufgabe:** Belegen, dass die Tests die Schutzmechanismen von `create_lead` festhalten. Sechs Mutationen, je eine zur Zeit: Der
   Mensch führte die genannten Tests aus, danach wurde die Mutation zurückgenommen.
