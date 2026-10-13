@@ -3,7 +3,7 @@
 - Status: Angenommen
 - Datum: 2026-10-10
 - Nachgeführt: 2026-10-12 (nach der Umsetzung von F08; geändert sind Punkt 5 und die Konsequenzen, ergänzt Punkt 1, 3, 5a, 5b, 6, 7 und 8);
-  2026-10-13 (Härtung der Schreibrolle: kein `SELECT` auf `activities`, Prüfung von Row Level Security; geändert sind Punkt 1 und Grenze f)
+  2026-10-13 (Härtung der Schreibrolle: kein `SELECT` auf `activities`, Prüfung von Row Level Security; Lokalteil der E-Mail-Adresse nur ASCII; geändert sind Punkt 1, Punkt 7 und Grenze f)
 
 ## Kontext
 F08 verlangt `create_lead` und `log_activity` (Auftrag 3.2, 4.7, 6.4). Doppelt angelegte Kunden werden verhindert,
@@ -100,8 +100,13 @@ neuen Kontakt (4.7) hat kein eigenes Werkzeug.
      Trennzeichen; Betreff und Zusammenfassung erlauben Zeilenumbruch, Wagenrücklauf und Tab. Aufzählungen werden exakt
      verglichen, ohne `strip` und ohne `lower`: Sprache `de` oder `en`, Land `de`, `at` oder `ch`, Branche `automotive`,
      `food`, `packaging`, `metalworking`, `plastics`, `logistics` oder `other` (Standard), Typ `inquiry`, `complaint` oder
-     `note`. Die Domain muss reines ASCII sein und wird dann kleingeschrieben, die E-Mail-Adresse wird ganz kleingeschrieben
-     (das Schema verlangt `lower`).
+     `note`. Domain und der Teil der E-Mail-Adresse vor dem `@` müssen reines ASCII sein und werden dann kleingeschrieben
+     (das Schema verlangt `lower`). Grund: Das `lower()` von Python und das von PostgreSQL unterscheiden sich bei einigen
+     Zeichen (zum Beispiel Kelvin-Zeichen, `İ`, `ẞ`), und das von PostgreSQL hängt von der Locale ab; mit ASCII ist das
+     Ergebnis gleich, und die CHECK-Regel `email = lower(email)` kann nicht anschlagen. Eine Adresse mit Umlaut oder einem
+     anderen Nicht-ASCII-Zeichen vor dem `@` wird deshalb abgelehnt, auch wenn eine solche in der Datenbank steht: Sie kann
+     nicht als `contact_email` in `log_activity` angegeben werden. `find_customer` prüft die Eingabe weiter locker und findet
+     sie.
    - Bei `log_activity` ist ein Kunde mit Status `inactive` erlaubt. Ein Kontakt wird über Adresse **und** Kunde gefunden;
      „Adresse unbekannt“ und „Adresse gehört zu einem anderen Kunden“ haben dieselbe feste Meldung. `contact_email` als leerer
      Text ist ungültig, nur ein fehlendes Feld heißt „kein Kontakt“.

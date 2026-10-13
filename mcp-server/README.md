@@ -223,7 +223,8 @@ die acht (ADR 0005).
 - **Eingaben** werden vor der Datenbank in `limits.py` geprüft, mit einer festen Meldung je Feld, die den Wert nie nennt.
   Firmenname, Namen und Position sind einzeilig und ohne Steuer-, Format- und Trennzeichen; Betreff und Zusammenfassung erlauben
   Zeilenumbruch, Wagenrücklauf und Tab. Aufzählungen werden exakt verglichen (ohne `strip`, ohne Kleinschreiben). Die
-  E-Mail-Adresse hat höchstens 254 Zeichen, genau ein `@` und eine Domain auf `.example`; sie wird ganz kleingeschrieben. Die
+  E-Mail-Adresse hat höchstens 254 Zeichen, genau ein `@`, vor dem `@` nur ASCII-Zeichen und eine Domain auf `.example`; sie wird
+  ganz kleingeschrieben. Eine Adresse mit Umlaut oder einem anderen Nicht-ASCII-Zeichen vor dem `@` wird abgelehnt. Die
   Domain (`customer_domain`) hat höchstens 253 Zeichen, nur ASCII und `.example`. Ein leerer Text bei `contact_email` ist
   ungültig, nur ein fehlendes Feld heißt „kein Kontakt“. Die Reihenfolge der Prüfung ist die Reihenfolge der Parameter.
 - **`create_lead`, Dublettenschutz** (ADR 0005, Punkt 5): Die Domain des Kunden kommt aus der E-Mail-Adresse. Gesucht wird
