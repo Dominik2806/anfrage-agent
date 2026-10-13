@@ -46,6 +46,28 @@ def render_role_script(name: str) -> str:
     return rendered
 
 
+# Schreibrolle (F08, ADR 0005). Wie oben: Das Skript läuft in Tests unter einem Zufallsnamen. Die feste Zahl der
+# Vorkommen kommt erst, wenn das Skript existiert; bis dahin gilt "mindestens ein Treffer".
+WRITE_ROLE_SCRIPT = ROOT / "db" / "roles" / "data_service_rw.sql"
+WRITE_ROLE_NAME = "data_service_rw"
+
+
+def render_write_role_script(name: str) -> str:
+    """Das Schreibrollen-Skript mit dem Rollennamen `name`. Bricht ab, wenn die Ersetzung nicht sauber greift."""
+    assert ROLE_NAME_PATTERN.fullmatch(name), "ungültiger Rollenname"
+    assert WRITE_ROLE_NAME not in name or name == WRITE_ROLE_NAME, (
+        "Testname darf den Originalnamen nicht enthalten"
+    )
+    text = WRITE_ROLE_SCRIPT.read_text(encoding="utf-8")
+    occurrences = text.count(WRITE_ROLE_NAME)
+    assert occurrences > 0, "der Rollenname steht nicht im Skript"
+    rendered = text.replace(WRITE_ROLE_NAME, name)
+    if name != WRITE_ROLE_NAME:
+        assert WRITE_ROLE_NAME not in rendered, "Originalname nach der Ersetzung übrig"
+        assert rendered.count(name) == occurrences
+    return rendered
+
+
 @contextmanager
 def as_role(conn: Any, role: str) -> Iterator[None]:
     """Führt den Block unter SET LOCAL ROLE aus und setzt die Rolle am Ende zurück."""
@@ -62,9 +84,9 @@ BASE_URL = "http://127.0.0.1:8000"
 MCP_PATH = "/mcp"
 
 TOOL_NAMES = {"search_products", "get_product", "find_customer", "create_lead", "log_activity"}
-# F07: die drei lesenden Werkzeuge sind echt, die übrigen bleiben Platzhalter (F08)
+# Drei Lese- und zwei Schreib-Werkzeuge, alle echt (F07, F08). Die Schreib-Werkzeuge: WRITE_TOOLS weiter unten.
+# Platzhalter sind nur noch beide Resources und der Prompt auf /mcp (NOT_IMPLEMENTED).
 READ_TOOLS = {"search_products", "get_product", "find_customer"}
-PLACEHOLDER_TOOLS = {"create_lead", "log_activity"}
 PRODUCTS_JSON = ROOT / "data" / "stammdaten" / "products.json"
 RESOURCE_URIS = {"policy://tonalitaet", "policy://rabatte"}
 PROMPT_NAMES = {"antwort_entwurf"}
@@ -260,3 +282,297 @@ DBURL_INVALID: list[tuple[str, str | None, dict[str, str]]] = [
     ("datenbankname-ungueltiges-utf8", f"postgresql://{_CRED}@localhost/geheim%FF", {}),
     ("datenbankname-mit-slash", f"postgresql://{_CRED}@localhost/geheimdb/zweiter", {}),
 ]
+
+
+# Schreibweg (F08 Etappe 2, ADR 0005 Punkte 2 und 8). Die Zugangswerte der Schreib-URL enthalten "geheim",
+# damit Tests prüfen können, dass keine Meldung sie nennt.
+WRITE_URL_NAME = "MCP_SERVER_WRITE_DATABASE_URL"
+WRITE_TOKEN_NAME = "MCP_SERVER_WRITE_TOKEN"
+GOOD_READ_URL = f"postgresql://{_CRED}@localhost:5432/geheimdb"
+GOOD_WRITE_URL = "postgresql://geheimschreiber:geheimschreibpasswort@localhost:5432/geheimdb"
+WRITE_SECRETS = ("geheimschreiber", "geheimschreibpasswort")
+
+# Zeilen, die Tests mit echtem Commit anlegen, tragen diesen Marker in der Domain (".example" ist Pflicht des
+# Schemas). Aufgeräumt wird nur, was den Marker trägt; ohne Marker löscht nichts.
+ROW_MARKER = "mcp-schreibtest"
+
+
+def marker_row() -> dict[str, str]:
+    """Eindeutige Testwerte für einen Kunden und einen Kontakt, alle mit dem Marker."""
+    import uuid
+
+    suffix = uuid.uuid4().hex[:12]
+    return {
+        "company_name": f"{ROW_MARKER} {suffix}",
+        "domain": f"{ROW_MARKER}-{suffix}.example",
+        "email": f"kontakt@{ROW_MARKER}-{suffix}.example",
+    }
+
+
+def delete_marker_rows(conn: Any, pattern: str = f"{ROW_MARKER}-%") -> None:
+    """Löscht die Marker-Kunden samt Aktivitäten und Kontakten (in dieser Reihenfolge, wegen der Fremdschlüssel).
+
+    `pattern` ist ein LIKE-Muster für die Domain und muss mit "<Marker>-" beginnen; sonst ValueError und es
+    wird nichts gelöscht. Die Verbindung muss ein Commit selbst erledigen (autocommit) oder der Aufrufer committet.
+    """
+    if not pattern.startswith(f"{ROW_MARKER}-"):
+        raise ValueError("Das Muster muss mit dem Marker beginnen.")
+    owned = "(SELECT id FROM customers WHERE domain LIKE %s)"
+    conn.execute(f"DELETE FROM activities WHERE customer_id IN {owned}", (pattern,))
+    conn.execute(f"DELETE FROM contacts WHERE customer_id IN {owned}", (pattern,))
+    conn.execute("DELETE FROM customers WHERE domain LIKE %s", (pattern,))
+
+
+# Zwei Pfade, zwei Token, Pfadweiche (F08 Etappe 3, ADR 0005 Punkte 3 und 4)
+WRITE_PATH = "/mcp-write"
+# Seit F08 liegen create_lead und log_activity auf WRITE_PATH, nicht mehr auf MCP_PATH. Beide sind echte Werkzeuge
+# (log_activity seit Etappe 4b, create_lead seit Etappe 4c).
+WRITE_TOOLS = {"create_lead", "log_activity"}
+
+
+def body_of_size(
+    size: int, tool: str, *, field: str = "query", extra: dict[str, Any] | None = None
+) -> bytes:
+    """Gültiger JSON-RPC-Aufruf von `tool` mit genau `size` Bytes (nur ASCII), das Argument `field` füllt auf.
+
+    Gemeinsame Hilfe für die Größenprüfungen auf /mcp-write (test_mcp_write_limits.py). Geprüft wird nur die
+    Größenbegrenzung der Anfrage, nicht der Inhalt des Arguments. `extra` sind weitere Argumente (z. B. die übrigen
+    Pflichtfelder eines Werkzeugs), damit der Aufruf die Eingabeprüfung des Werkzeugs erreicht.
+    """
+
+    def build(pad: int) -> bytes:
+        payload = {
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "tools/call",
+            "params": {"name": tool, "arguments": {field: "x" * pad, **(extra or {})}},
+        }
+        return json.dumps(payload).encode("ascii")
+
+    overhead = len(build(0))
+    body = build(size - overhead)
+    assert len(body) == size
+    return body
+
+
+class RecordingApp:
+    """ASGI-Fake für die Tests der Weiche: merkt sich jeden Aufruf, liest nie `receive` und antwortet 200 mit ihrem Namen.
+
+    `calls` enthält (scope, receive, send) so, wie die Weiche sie übergeben hat (Identität prüfbar).
+    """
+
+    def __init__(self, name: str) -> None:
+        self.name = name
+        self.calls: list[tuple[Any, Any, Any]] = []
+
+    @property
+    def scopes(self) -> list[Any]:
+        return [scope for scope, _, _ in self.calls]
+
+    async def __call__(self, scope: Any, receive: Any, send: Any) -> None:
+        self.calls.append((scope, receive, send))
+        if scope["type"] == "http":
+            await send({"type": "http.response.start", "status": 200, "headers": []})
+            await send({"type": "http.response.body", "body": self.name.encode()})
+
+
+def drive_lifespan(app: Any) -> list[dict[str, Any]]:
+    """Spielt eine ASGI-Lifespan durch: sendet `lifespan.startup`, nach `startup.complete` `lifespan.shutdown`.
+
+    Gibt alle Nachrichten zurück, die die App gesendet hat. Eine Ausnahme der App wird nicht verschluckt (der Test
+    scheitert dann); eine App, die nach fünf Sekunden nicht fertig ist, ebenfalls.
+    """
+    import asyncio
+
+    async def run() -> list[dict[str, Any]]:
+        sent: list[dict[str, Any]] = []
+        inbox: asyncio.Queue[dict[str, Any]] = asyncio.Queue()
+        await inbox.put({"type": "lifespan.startup"})
+
+        async def send(message: dict[str, Any]) -> None:
+            sent.append(message)
+            if message["type"] == "lifespan.startup.complete":
+                await inbox.put({"type": "lifespan.shutdown"})
+
+        scope = {"type": "lifespan", "asgi": {"version": "3.0"}}
+        await asyncio.wait_for(app(scope, inbox.get, send), timeout=5)
+        return sent
+
+    return asyncio.run(run())
+
+
+def fake_lifespan(name: str, events: list[str], fail_on: str | None = None) -> Any:
+    """Fabrik für einen asynchronen Kontextmanager, der `name:enter` und `name:exit` in `events` aufzeichnet.
+
+    `fail_on` ("<name>:enter" oder "<name>:exit") lässt genau diesen Schritt mit RuntimeError("geheimtext")
+    scheitern; beim Start steht dann `<name>:enter-failed` in `events`. Die Weiche ruft die Fabrik je Lauf auf.
+    """
+    from contextlib import asynccontextmanager
+
+    @asynccontextmanager
+    async def factory() -> Any:
+        if fail_on == f"{name}:enter":
+            events.append(f"{name}:enter-failed")
+            raise RuntimeError("geheimtext")
+        events.append(f"{name}:enter")
+        try:
+            yield
+        finally:
+            events.append(f"{name}:exit")
+            if fail_on == f"{name}:exit":
+                raise RuntimeError("geheimtext")
+
+    return factory
+
+
+class CountingDatabase:
+    """ConnectionSource, die nie benutzt werden darf: Jeder Zugriff wird gezählt und wirft AssertionError.
+
+    `calls == 0` belegt, dass ein Aufruf die Datenbank nicht berührt hat (z. B. weil die Eingabeprüfung vorher abwies).
+    """
+
+    def __init__(self) -> None:
+        self.calls = 0
+
+    @contextmanager
+    def connection(self) -> Iterator[Any]:
+        self.calls += 1
+        raise AssertionError("Datenbank berührt")
+        yield  # pragma: no cover - macht die Funktion zum Generator
+
+
+class ExplodingConnection:
+    """Jeder Zugriff auf die Verbindung (execute, cursor, ...) wirft die übergebene Ausnahme."""
+
+    def __init__(self, error: BaseException) -> None:
+        self._error = error
+
+    def __getattr__(self, name: str) -> Any:
+        raise self._error
+
+
+class ExplodingDatabase:
+    """ConnectionSource, deren Verbindung bei jedem Zugriff die übergebene Ausnahme wirft."""
+
+    def __init__(self, error: BaseException) -> None:
+        self._error = error
+
+    @contextmanager
+    def connection(self) -> Iterator[Any]:
+        yield ExplodingConnection(self._error)
+
+
+def _statement_text(query: Any) -> str:
+    if isinstance(query, str):
+        return query
+    if isinstance(query, bytes):
+        return query.decode("utf-8")
+    return str(query.as_string())
+
+
+class _RecordedCursor:
+    def __init__(self, inner: Any, record: Any, before: Any) -> None:
+        self._inner = inner
+        self._record = record
+        self._before = before
+
+    def __enter__(self) -> "_RecordedCursor":
+        return self
+
+    def __exit__(self, *exc_info: object) -> None:
+        self._inner.close()
+
+    def execute(self, query: Any, params: Any = None, **kwargs: Any) -> "_RecordedCursor":
+        self._before(_statement_text(query), params)
+        self._inner.execute(query, params, **kwargs)
+        self._record(_statement_text(query), params)
+        return self
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._inner, name)
+
+
+class _RecordedConnection:
+    def __init__(self, inner: Any, record: Any, before: Any) -> None:
+        self._inner = inner
+        self._record = record
+        self._before = before
+
+    def execute(self, query: Any, params: Any = None, **kwargs: Any) -> Any:
+        self._before(_statement_text(query), params)
+        result = self._inner.execute(query, params, **kwargs)
+        self._record(_statement_text(query), params)
+        return result
+
+    def cursor(self, *args: Any, **kwargs: Any) -> _RecordedCursor:
+        return _RecordedCursor(self._inner.cursor(*args, **kwargs), self._record, self._before)
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._inner, name)
+
+
+class StatementRecorder:
+    """Umhüllt eine ConnectionSource und zeichnet (SQL-Text, Parameter) jedes ausgeführten Befehls auf.
+
+    `on_execute(text, params)` (optional) läuft **nach** jedem Befehl, auf dem Weg des Aufrufers: So lässt sich
+    prüfen, was eine zweite Verbindung mitten im Aufruf sieht, oder ein Fehler nach einem Befehl einspritzen.
+    `before_execute(text, params)` (optional) läuft **vor** jedem Befehl: So lässt sich ein Konkurrent einfügen, bevor
+    der INSERT des Aufrufs läuft (der Befehl scheitert dann mit dem echten Fehler der Datenbank), oder ein Fehler
+    anstelle des Befehls einspritzen. Ein Befehl, vor dem der Hook wirft, wird nicht ausgeführt und nicht aufgezeichnet.
+    `connections` zählt, wie oft `connection()` geöffnet wurde (= Zahl der Versuche eines Aufrufs).
+    """
+
+    def __init__(self, inner: Any, on_execute: Any = None, before_execute: Any = None) -> None:
+        self._inner = inner
+        self._on_execute = on_execute
+        self._before_execute = before_execute
+        self.statements: list[tuple[str, Any]] = []
+        self.connections = 0
+
+    def _record(self, text: str, params: Any) -> None:
+        self.statements.append((text, params))
+        if self._on_execute is not None:
+            self._on_execute(text, params)
+
+    def _before(self, text: str, params: Any) -> None:
+        if self._before_execute is not None:
+            self._before_execute(text, params)
+
+    @contextmanager
+    def connection(self) -> Iterator[_RecordedConnection]:
+        self.connections += 1
+        with self._inner.connection() as connection:
+            yield _RecordedConnection(connection, self._record, self._before)
+
+
+# Hilfen für Aufrufe über HTTP an /mcp-write mit einer Datenbank (Ende-zu-Ende-Tests von create_lead).
+# `client` ist ein TestClient (e2e_client_for), `headers` enthält das Token.
+
+
+def rpc_post(
+    client: Any,
+    headers: dict[str, str],
+    method: str,
+    params: dict[str, Any] | None = None,
+    path: str = WRITE_PATH,
+) -> Any:
+    """Schickt rohes JSON-RPC an `path` und gibt die HTTP-Antwort zurück (Status wird nicht geprüft)."""
+    payload = {"jsonrpc": "2.0", "id": 1, "method": method, "params": params or {}}
+    return client.post(path, json=payload, headers={**RPC_HEADERS, **headers})
+
+
+def tool_call_post(
+    client: Any,
+    headers: dict[str, str],
+    name: str,
+    arguments: dict[str, Any],
+    path: str = WRITE_PATH,
+) -> Any:
+    """tools/call für das Werkzeug `name` mit `arguments`; gibt die HTTP-Antwort zurück."""
+    return rpc_post(client, headers, "tools/call", {"name": name, "arguments": arguments}, path)
+
+
+def result_of(response: Any) -> dict[str, Any]:
+    """`result` einer JSON-RPC-Antwort mit HTTP 200 (auch bei isError); bricht bei anderem Status ab."""
+    assert response.status_code == 200, response.text
+    return parse_rpc_body(response)["result"]

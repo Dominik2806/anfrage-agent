@@ -1,19 +1,23 @@
 """Datenbankzugriff des Datenservice hoffmann-data (F07).
 
 Nur dieses Modul importiert den Datenbanktreiber (psycopg); alle anderen Module bekommen die Verbindung
-von hier (Test: test_mcp_no_leak.py). Der Dienst liest nur (Auftrag 5.1):
-- Jeder Aufruf öffnet eine eigene Verbindung (kein Pool) und schließt sie am Ende. Es wird nie committet.
-- Die Verbindung ist schreibgeschützt (read_only) und hat ein Zeitlimit von 5 Sekunden je Abfrage.
-- prepare_threshold=None: keine serverseitig vorbereiteten Abfragen (Pooler im Transaktionsmodus).
-- Fehler der Datenbank werden auf eine feste Meldung abgebildet. Meldung, Log und Ausnahmekette enthalten
-  weder Host noch Benutzer noch Datenbankname noch URL noch den Text der Ausnahme.
-- Beim Start prüft verify_read_only_role, dass die Rolle der Verbindung wirklich nur lesen darf (Etappe 7).
-  Die Prüfung ist eine Momentaufnahme; die Rolle (db/roles/data_service_ro.sql) bleibt die eigentliche Sperre.
+von hier (Test: test_mcp_no_leak.py). Der Lesepfad liest nur, der Schreibpfad legt nur an (Auftrag 5.1, ADR 0005).
+Gemeinsam: Jeder Aufruf öffnet eine eigene Verbindung (kein Pool) und schließt sie am Ende, mit einem Zeitlimit von
+5 Sekunden je Abfrage und prepare_threshold=None (keine serverseitig vorbereiteten Abfragen, Pooler im
+Transaktionsmodus). Fehler der Datenbank werden auf eine feste Meldung abgebildet. Meldung, Log und Ausnahmekette
+enthalten weder Host noch Benutzer noch Datenbankname noch URL noch den Text der Ausnahme.
+- Lesepfad (Database, read_connection): Die Verbindung ist schreibgeschützt (read_only), es wird nie committet.
+- Schreibpfad (WriteDatabase, write_connection): Die Verbindung ist nicht schreibgeschützt. Eine Transaktion je
+  Aufruf: Commit am Ende, bei jeder Ausnahme Rollback, danach wird die Verbindung geschlossen. INSERT INTO steht nur
+  in diesem Modul.
+- Beim Start prüfen verify_read_only_role und verify_write_role, dass die Rolle der jeweiligen Verbindung wirklich nur
+  lesen beziehungsweise nur lesen und anlegen darf (Etappe 7, F08). Die Prüfungen sind eine Momentaufnahme; die Rollen
+  (db/roles/data_service_ro.sql, db/roles/data_service_rw.sql) bleiben die eigentliche Sperre.
 """
 
 import logging
 from collections.abc import Iterator, Mapping, Sequence
-from contextlib import AbstractContextManager, contextmanager
+from contextlib import AbstractContextManager, contextmanager, suppress
 from typing import Any, Protocol
 
 import psycopg
@@ -249,3 +253,364 @@ def verify_read_only_role(database: ConnectionSource) -> None:
     # Außerhalb des try: Das Ergebnis der Prüfung wird weder gefangen noch ein zweites Mal geloggt
     if failed:
         raise RoleCheckError(failed)
+
+
+# Startprüfung der Schreibrolle (F08, ADR 0005)
+
+# Die Schreibrolle (db/roles/data_service_rw.sql) darf auf customers und contacts lesen und anlegen, auf
+# activities nur anlegen (der Schreibweg liest sie nie) und auf den letzten drei Tabellen nichts. Die Reihenfolge
+# ist die der Abfrage und der Meldung tabelle-fehlt.
+WRITABLE_TABLES = ("customers", "contacts", "activities")
+SELECT_REQUIRED_TABLES = ("customers", "contacts")
+INSERT_ONLY_TABLES = ("activities",)
+FORBIDDEN_TABLES = ("products", "product_fits", "discount_rules")
+WRITE_CHECKED_TABLES = WRITABLE_TABLES + FORBIDDEN_TABLES
+# Unerlaubte Rechte: (Recht, Spalte aus WRITE_TABLES_SQL), in der Reihenfolge der Ausgabe. Auf den
+# Schreibtabellen ist INSERT erlaubt (und Pflicht), auf den Fremdtabellen ist jedes Recht unerlaubt.
+_EXTRA_WRITE_CHECKS = (
+    (UPDATE_RIGHT, "any_update"),
+    (DELETE_RIGHT, "can_delete"),
+    (TRUNCATE_RIGHT, "can_truncate"),
+)
+_FORBIDDEN_WRITE_CHECKS = ((INSERT_RIGHT, "any_insert"), *_EXTRA_WRITE_CHECKS)
+
+# Eine Zeile je Tabelle in der Reihenfolge von WRITE_CHECKED_TABLES. Pflichtrechte (can_select, can_insert) zählen
+# nur als Tabellenrecht, unerlaubte Rechte (any_*) auch als Spaltenrecht. Die Rechtenamen kommen nur als Parameter.
+WRITE_TABLES_SQL = """SELECT
+    t.table_name,
+    to_regclass(t.table_name) IS NOT NULL AS present,
+    COALESCE(
+        has_table_privilege(current_user, to_regclass(t.table_name), %(priv_select)s::text), false
+    ) AS can_select,
+    COALESCE(
+        has_any_column_privilege(current_user, to_regclass(t.table_name), %(priv_select)s::text), false
+    ) AS any_select,
+    COALESCE(
+        has_table_privilege(current_user, to_regclass(t.table_name), %(priv_insert)s::text), false
+    ) AS can_insert,
+    COALESCE(
+        has_any_column_privilege(current_user, to_regclass(t.table_name), %(priv_insert)s::text), false
+    ) AS any_insert,
+    COALESCE(
+        has_any_column_privilege(current_user, to_regclass(t.table_name), %(priv_update)s::text), false
+    ) AS any_update,
+    COALESCE(
+        has_table_privilege(current_user, to_regclass(t.table_name), %(priv_delete)s::text), false
+    ) AS can_delete,
+    COALESCE(
+        has_table_privilege(current_user, to_regclass(t.table_name), %(priv_truncate)s::text), false
+    ) AS can_truncate,
+    COALESCE(
+        (SELECT c.relrowsecurity FROM pg_class c WHERE c.oid = to_regclass(t.table_name)), false
+    ) AS rls_enabled
+FROM unnest(%(tables)s::text[]) WITH ORDINALITY AS t(table_name, ord)
+ORDER BY t.ord"""
+
+
+def _failed_write_checks(
+    role_rows: list[dict[str, Any]], table_rows: list[dict[str, Any]]
+) -> list[str]:
+    """Die Kurzbezeichnungen der gescheiterten Prüfungen der Schreibrolle in fester Reihenfolge.
+
+    1 Superuser, 2 BYPASSRLS, 3 Row Level Security aus (rls-aus), 4 unerlaubte Rechte auf den Schreibtabellen
+    (je Tabelle in der Reihenfolge der Tabellen; auf activities zuerst jedes SELECT, dann UPDATE, DELETE, TRUNCATE),
+    5 jedes Recht auf den Fremdtabellen (zuerst Lesen, dann Schreibrechte), 6 fehlendes SELECT auf customers und
+    contacts, danach fehlendes INSERT auf den drei Schreibtabellen, 7 CREATE im Schema, 8 fehlende Tabellen. Eine
+    fehlende Tabelle erscheint nur unter 8.
+    """
+    role = role_rows[0]
+    rows = {row["table_name"]: row for row in table_rows}
+    writable = [rows[name] for name in WRITABLE_TABLES if rows[name]["present"]]
+    forbidden = [rows[name] for name in FORBIDDEN_TABLES if rows[name]["present"]]
+    failed: list[str] = []
+    if role["rolsuper"]:
+        failed.append(SUPERUSER_FAILURE)
+    if role["rolbypassrls"]:
+        failed.append(BYPASS_RLS_FAILURE)
+    for row in writable:
+        if not row["rls_enabled"]:
+            failed.append(f"rls-aus:{row['table_name']}")
+    for row in writable:
+        if row["table_name"] in INSERT_ONLY_TABLES and row["any_select"]:
+            failed.append(f"lesen-unerlaubt:{row['table_name']}")
+        for right, column in _EXTRA_WRITE_CHECKS:
+            if row[column]:
+                failed.append(f"schreibrecht:{right}:{row['table_name']}")
+    for row in forbidden:
+        if row["any_select"]:
+            failed.append(f"lesen-unerlaubt:{row['table_name']}")
+        for right, column in _FORBIDDEN_WRITE_CHECKS:
+            if row[column]:
+                failed.append(f"schreibrecht:{right}:{row['table_name']}")
+    for row in writable:
+        if row["table_name"] in SELECT_REQUIRED_TABLES and not row["can_select"]:
+            failed.append(NO_SELECT_FAILURES[row["table_name"]])
+    for row in writable:
+        if not row["can_insert"]:
+            failed.append(f"fehlendes-recht:{INSERT_RIGHT}:{row['table_name']}")
+    if role["can_create"]:
+        failed.append(CREATE_FAILURE)
+    for row in table_rows:
+        if not row["present"]:
+            failed.append(f"tabelle-fehlt:{row['table_name']}")
+    return failed
+
+
+def verify_write_role(database: ConnectionSource) -> None:
+    """Prüft beim Start, dass die Rolle der Verbindung nur anlegen und lesen darf. Wirft RoleCheckError, sonst None.
+
+    Prüfungen: 1 kein Superuser, 2 kein BYPASSRLS, 3 Row Level Security aktiv (relrowsecurity) auf customers,
+    contacts, activities; relforcerowsecurity betrifft nur den Eigentümer und wird nicht geprüft, 4 auf diesen
+    drei Tabellen kein UPDATE, DELETE, TRUNCATE (UPDATE auch nicht als Spaltenrecht), auf activities zusätzlich
+    kein SELECT (auch nicht als Spaltenrecht), 5 auf products, product_fits, discount_rules weder Tabellen- noch
+    Spaltenrecht (SELECT, INSERT, UPDATE) noch DELETE oder TRUNCATE, 6 SELECT und INSERT auf customers und
+    contacts sowie INSERT auf activities, 7 kein CREATE im aktuellen Schema, 8 alle sechs Tabellen existieren.
+    Geprüft werden Rechte und der RLS-Schalter, nicht der Wortlaut der Policies.
+    Nur lesende Abfragen, genau eine Verbindung. Scheitert die Verbindung oder eine Abfrage, steht im Fehler nur
+    die Kurzbezeichnung `datenbankfehler`; geloggt wird genau einmal Klasse und SQLSTATE.
+    """
+    try:
+        with database.connection() as connection:
+            role_rows = fetch_all(connection, ROLE_SQL, {"priv_create": CREATE_RIGHT})
+            table_rows = fetch_all(
+                connection,
+                WRITE_TABLES_SQL,
+                {
+                    "tables": list(WRITE_CHECKED_TABLES),
+                    "priv_select": SELECT_RIGHT,
+                    "priv_insert": INSERT_RIGHT,
+                    "priv_update": UPDATE_RIGHT,
+                    "priv_delete": DELETE_RIGHT,
+                    "priv_truncate": TRUNCATE_RIGHT,
+                },
+            )
+        failed = _failed_write_checks(role_rows, table_rows)
+    except Exception as exc:  # noqa: BLE001 - Absicht: Auch Unerwartetes darf keinen Text nach außen tragen
+        _log_failure(exc)
+        # from None: kein __cause__, der Kontext ist unterdrückt
+        raise RoleCheckError((DATABASE_FAILURE,)) from None
+    # Außerhalb des try: Das Ergebnis der Prüfung wird weder gefangen noch ein zweites Mal geloggt
+    if failed:
+        raise RoleCheckError(failed)
+
+
+# Schreibweg (F08 Etappe 2, ADR 0005 Punkt 8)
+
+DUPLICATE_ERROR = "Der Eintrag existiert bereits."
+
+
+def _rollback_quietly(connection: Any) -> None:
+    """Rollt zurück und verschluckt einen Fehler dabei: Er darf die ursprüngliche Ausnahme nicht verdecken."""
+    with suppress(Exception):
+        connection.rollback()
+
+
+class WriteDatabase:
+    """Verbindungsquelle für den Schreibweg. Der Konstruktor verbindet nicht.
+
+    Eigenständig und getrennt von Database (der Lesepfad bleibt unberührt). Jeder Aufruf ist eine Transaktion
+    auf einer eigenen Verbindung (kein Pool): Das Ende des Blocks ohne Ausnahme ist der Commit, jede Ausnahme im
+    Block ist ein Rollback. Die Verbindung ist nicht schreibgeschützt und hat ein Zeitlimit von 5 Sekunden je
+    Abfrage.
+    """
+
+    def __init__(self, url: str, **connect_kwargs: Any) -> None:
+        self._url = url
+        self._connect_kwargs = connect_kwargs
+
+    def __repr__(self) -> str:
+        # Keine URL: Sie enthält Benutzer, Passwort und Host
+        return "WriteDatabase()"
+
+    @contextmanager
+    def connection(self) -> Iterator[psycopg.Connection[Any]]:
+        """Öffnet eine eigene Verbindung, committet am Ende, rollt bei jeder Ausnahme zurück und schließt sie."""
+        # Unsere Werte stehen zuletzt und gewinnen gegen connect_kwargs und gegen Parameter in der URL
+        options = {
+            **self._connect_kwargs,
+            "connect_timeout": CONNECT_TIMEOUT_SECONDS,
+            "prepare_threshold": None,
+        }
+        # Scheitert das Verbinden, gibt es nichts zu schließen
+        connection = psycopg.connect(self._url, **options)
+        try:
+            # Beginnt die Transaktion; SET LOCAL gilt bis zum Commit oder Rollback dieses einen Aufrufs
+            connection.execute(STATEMENT_TIMEOUT_SQL)
+            yield connection
+            # Im try: Scheitert der Commit, rollt der Zweig unten zurück
+            connection.commit()
+        except BaseException:
+            _rollback_quietly(connection)
+            raise
+        finally:
+            connection.close()
+
+
+@contextmanager
+def write_connection(database: ConnectionSource | None) -> Iterator[Any]:
+    """Verbindung für einen schreibenden Werkzeugaufruf (Gegenstück zu read_connection).
+
+    - Ohne Datenbank: ToolError(NOT_CONFIGURED), nie Scheindaten.
+    - Ein ToolError aus dem Block (z. B. ungültige Eingabe) läuft unverändert durch; die Datenbank hat ihn
+      gesehen und zurückgerollt.
+    - Eine UniqueViolation (SQLSTATE 23505) wird zu ToolError(DUPLICATE_ERROR).
+    - Jeder andere Fehler (psycopg.Error, unerwartete Ausnahme, auch beim Verbinden) wird zu
+      ToolError(DATABASE_ERROR). Beides wird einmal geloggt (Klasse und SQLSTATE, nie der Text) und ohne Ursache
+      weitergegeben.
+    """
+    if database is None:
+        raise ToolError(NOT_CONFIGURED)
+    try:
+        with database.connection() as connection:
+            yield connection
+    except ToolError:
+        raise
+    except psycopg.errors.UniqueViolation as exc:
+        _log_failure(exc)
+        raise ToolError(DUPLICATE_ERROR) from None
+    except Exception as exc:  # noqa: BLE001 - Absicht: Auch unerwartete Ausnahmen dürfen keinen Text nach außen tragen
+        _log_failure(exc)
+        # from None: kein __cause__ und unterdrückter Kontext, damit der Text der Ausnahme nirgends mitläuft
+        raise ToolError(DATABASE_ERROR) from None
+
+
+# log_activity (F08 Etappe 4b, ADR 0005 Punkt 7). Alle INSERT INTO des Pakets stehen in db.py. Alle Werte sind benannte
+# Parameter; fest stehen created_by ('agent', die INSERT-Policy der Schreibrolle verlangt es) und occurred_at (now() der
+# Datenbank: die Tabelle hat dafür keinen Default). Kein amount_eur, kein product_id.
+INSERT_ACTIVITY_SQL = """INSERT INTO activities
+    (customer_id, contact_id, type, occurred_at, subject, summary, created_by)
+VALUES
+    (%(customer_id)s::bigint, %(contact_id)s::bigint, %(activity_type)s::text, now(),
+     %(subject)s::text, %(summary)s::text, 'agent')"""
+
+# domain und email sind UNIQUE: höchstens eine Zeile. Der Kontakt wird immer zusammen mit dem Kunden gesucht.
+FIND_CUSTOMER_ID_SQL = """SELECT id FROM customers WHERE domain = %(domain)s::text"""
+
+FIND_CONTACT_ID_SQL = """SELECT id FROM contacts
+WHERE email = %(email)s::text AND customer_id = %(customer_id)s::bigint"""
+
+
+def find_customer_id(connection: Any, domain: str) -> int | None:
+    """Die interne id des Kunden mit dieser Domain oder None. Nur intern, nie Teil einer Ausgabe."""
+    rows = fetch_all(connection, FIND_CUSTOMER_ID_SQL, {"domain": domain})
+    return int(rows[0]["id"]) if rows else None
+
+
+def find_contact_id(connection: Any, customer_id: int, email: str) -> int | None:
+    """Die interne id des Kontakts mit dieser Adresse bei genau diesem Kunden oder None."""
+    rows = fetch_all(connection, FIND_CONTACT_ID_SQL, {"email": email, "customer_id": customer_id})
+    return int(rows[0]["id"]) if rows else None
+
+
+def insert_activity(
+    connection: Any,
+    customer_id: int,
+    contact_id: int | None,
+    activity_type: str,
+    subject: str,
+    summary: str,
+) -> None:
+    """Legt genau eine Aktivität an: created_by fest 'agent', occurred_at = now() der Datenbank. Gibt nichts zurück."""
+    connection.execute(
+        INSERT_ACTIVITY_SQL,
+        {
+            "customer_id": customer_id,
+            "contact_id": contact_id,
+            "activity_type": activity_type,
+            "subject": subject,
+            "summary": summary,
+        },
+    )
+
+
+# create_lead (F08 Etappe 4c, ADR 0005 Punkt 5). Jeder INSERT steht in einer eigenen Zeichenkette. Alle Werte sind
+# benannte Parameter; der Status steht fest im Text ('lead', die INSERT-Policy der Schreibrolle verlangt es), created_at
+# setzt der Standardwert der Tabelle (now()).
+# Die drei Nachschlagungen sind EINE Anweisung: In READ COMMITTED sieht jede Anweisung den Stand zu ihrem eigenen
+# Zeitpunkt. Mit drei getrennten Abfragen könnte ein paralleler Aufruf zwischen ihnen committen, und aus "kein Treffer
+# über die Domain, Treffer über den Namen" würde ein falscher Konflikt. Eine Anweisung ist eine Momentaufnahme. Jede
+# Unterabfrage liefert höchstens eine Zeile (domain, lower(company_name) und email sind eindeutig). Der Firmenname wird
+# wie der eindeutige Index auf lower(company_name) gesucht.
+FIND_LEAD_MATCHES_SQL = """SELECT
+    (SELECT id FROM customers WHERE domain = %(domain)s::text) AS domain_customer_id,
+    (SELECT id FROM customers WHERE lower(company_name) = lower(%(company_name)s::text)) AS name_customer_id,
+    (SELECT customer_id FROM contacts WHERE email = %(email)s::text) AS contact_customer_id"""
+
+INSERT_CUSTOMER_SQL = """INSERT INTO customers
+    (company_name, domain, industry, country, status)
+VALUES
+    (%(company_name)s::text, %(domain)s::text, %(industry)s::text, %(country)s::text, 'lead')
+RETURNING id"""
+
+INSERT_CONTACT_SQL = """INSERT INTO contacts
+    (customer_id, first_name, last_name, email, job_title, language)
+VALUES
+    (%(customer_id)s::bigint, %(first_name)s::text, %(last_name)s::text, %(email)s::text,
+     %(job_title)s::text, %(language)s::text)"""
+
+
+def find_lead_matches(
+    connection: Any, domain: str, company_name: str, email: str
+) -> tuple[int | None, int | None, int | None]:
+    """(Kunde der Domain, Kunde des Firmennamens, Kunde der Adresse), je None ohne Treffer. Nur intern.
+
+    Der Firmenname wird ohne Beachtung der Schreibung gesucht. Eine Anweisung, also ein Stand für alle drei.
+    """
+    rows = fetch_all(
+        connection,
+        FIND_LEAD_MATCHES_SQL,
+        {"domain": domain, "company_name": company_name, "email": email},
+    )
+    row = rows[0]  # ein SELECT ohne FROM liefert immer genau eine Zeile
+    by_domain, by_name, owner = (
+        row["domain_customer_id"],
+        row["name_customer_id"],
+        row["contact_customer_id"],
+    )
+    return (
+        None if by_domain is None else int(by_domain),
+        None if by_name is None else int(by_name),
+        None if owner is None else int(owner),
+    )
+
+
+def insert_customer(
+    connection: Any, company_name: str, domain: str, industry: str, country: str
+) -> int:
+    """Legt genau einen Kunden mit Status lead an und gibt seine interne id zurück (nur intern, nie ausgeben)."""
+    with connection.cursor(row_factory=dict_row) as cursor:
+        cursor.execute(
+            INSERT_CUSTOMER_SQL,
+            {
+                "company_name": company_name,
+                "domain": domain,
+                "industry": industry,
+                "country": country,
+            },
+        )
+        row = cursor.fetchone()
+    assert row is not None  # RETURNING id liefert bei Erfolg immer genau eine Zeile
+    return int(row["id"])
+
+
+def insert_contact(
+    connection: Any,
+    customer_id: int,
+    first_name: str,
+    last_name: str,
+    email: str,
+    job_title: str | None,
+    language: str,
+) -> None:
+    """Legt genau einen Kontakt an einem bestehenden Kunden an. Gibt nichts zurück."""
+    connection.execute(
+        INSERT_CONTACT_SQL,
+        {
+            "customer_id": customer_id,
+            "first_name": first_name,
+            "last_name": last_name,
+            "email": email,
+            "job_title": job_title,
+            "language": language,
+        },
+    )

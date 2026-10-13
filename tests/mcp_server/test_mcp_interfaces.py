@@ -1,10 +1,11 @@
-"""Tests der acht Schnittstellen (F06, F07) über HTTP mit gültigem Token, mit rohem JSON-RPC.
+"""Tests der Schnittstellen des Lese-Pfads /mcp (F06, F07) über HTTP mit gültigem Lese-Token, mit rohem JSON-RPC.
 
 Der Weg geht durch Middleware, SDK-App und Transport. mcp.Client in-process würde die Auth umgehen.
 Seit F07 sind die drei Lese-Werkzeuge echt (Verhalten: test_search_products.py, test_get_product.py,
-test_find_customer.py). Die übrigen fünf Schnittstellen (create_lead, log_activity, beide Resources, der
-Prompt) bleiben Platzhalter und sind parameterlos, deshalb genügen leere Argumente. Hier stehen die
-Prüfungen, die keine Datenbank brauchen: Liste, Beschreibungen und Schemas der Werkzeuge.
+test_find_customer.py). Beide Resources und der Prompt bleiben Platzhalter und sind parameterlos, deshalb
+genügen leere Argumente. create_lead und log_activity liegen seit F08 (ADR 0005) auf /mcp-write und sind hier
+unbekannt; ihre Prüfungen stehen in test_mcp_write_interfaces.py. Hier stehen die Prüfungen, die keine
+Datenbank brauchen: Liste, Beschreibungen und Schemas der Werkzeuge des Lese-Pfads.
 """
 
 import json
@@ -15,19 +16,19 @@ import pytest
 from mcp_testkit import (
     INTERNAL_ERROR_CODE,
     NOT_IMPLEMENTED,
-    PLACEHOLDER_TOOLS,
     PROMPT_NAMES,
     READ_TOOLS,
     RESOURCE_URIS,
     TOOL_NAMES,
+    WRITE_TOOLS,
 )
 
 Rpc = Callable[..., dict[str, Any]]
 
 
-def test_tools_list_has_exactly_the_five_tools(rpc: Rpc) -> None:
+def test_tools_list_on_the_read_path_has_exactly_the_three_read_tools(rpc: Rpc) -> None:
     body = rpc("tools/list")
-    assert {t["name"] for t in body["result"]["tools"]} == TOOL_NAMES
+    assert {t["name"] for t in body["result"]["tools"]} == READ_TOOLS
 
 
 def test_resources_list_has_exactly_the_two_policies(rpc: Rpc) -> None:
@@ -44,12 +45,12 @@ def test_prompts_list_has_exactly_antwort_entwurf(rpc: Rpc) -> None:
     assert {p["name"] for p in body["result"]["prompts"]} == PROMPT_NAMES
 
 
-def test_all_eight_interfaces_have_a_description(rpc: Rpc) -> None:
+def test_all_six_interfaces_of_the_read_path_have_a_description(rpc: Rpc) -> None:
     tools = rpc("tools/list")["result"]["tools"]
     resources = rpc("resources/list")["result"]["resources"]
     prompts = rpc("prompts/list")["result"]["prompts"]
     items = [*tools, *resources, *prompts]
-    assert len(items) == 8
+    assert len(items) == 6
     assert all((item.get("description") or "").strip() for item in items)
 
 
@@ -61,18 +62,18 @@ def test_no_tool_can_send_or_delete(rpc: Rpc) -> None:
 
 
 def test_tool_groups_cover_the_five_tools_without_overlap() -> None:
-    assert READ_TOOLS | PLACEHOLDER_TOOLS == TOOL_NAMES
-    assert not READ_TOOLS & PLACEHOLDER_TOOLS
+    assert READ_TOOLS | WRITE_TOOLS == TOOL_NAMES
+    assert not READ_TOOLS & WRITE_TOOLS
 
 
-@pytest.mark.parametrize("tool", sorted(PLACEHOLDER_TOOLS))
-def test_each_tool_placeholder_returns_an_error_not_data(rpc: Rpc, tool: str) -> None:
+@pytest.mark.parametrize("tool", sorted(WRITE_TOOLS))
+def test_the_write_tools_are_unknown_on_the_read_path(rpc: Rpc, tool: str) -> None:
+    """Seit F08 liegen create_lead und log_activity auf /mcp-write. Auf /mcp sind sie unbekannt, nicht Platzhalter."""
     body = rpc("tools/call", {"name": tool, "arguments": {}})
-    result = body["result"]
-    assert result["isError"] is True
-    text = " ".join(c.get("text", "") for c in result["content"])
-    assert NOT_IMPLEMENTED in text
-    assert not result.get("structuredContent")
+    assert "error" not in body
+    assert body["result"]["isError"] is True
+    assert NOT_IMPLEMENTED not in json.dumps(body, ensure_ascii=False)
+    assert not body["result"].get("structuredContent")
 
 
 @pytest.mark.parametrize("uri", sorted(RESOURCE_URIS))
@@ -99,14 +100,6 @@ def test_unknown_tool_is_a_tool_error_result(rpc: Rpc) -> None:
     assert NOT_IMPLEMENTED not in json.dumps(body, ensure_ascii=False)
 
 
-def test_error_text_does_not_echo_arguments(rpc: Rpc) -> None:
-    """Der Platzhalterfehler gibt keine Eingabewerte aus (Kundentext ist Daten, kein Echo)."""
-    body = rpc("tools/call", {"name": "log_activity", "arguments": {"query": "GEHEIM-4711"}})
-    dumped = json.dumps(body, ensure_ascii=False)
-    assert NOT_IMPLEMENTED in dumped, "es kam nicht der Platzhalterfehler"
-    assert "GEHEIM-4711" not in dumped
-
-
 # Die drei Lese-Werkzeuge (F07): Beschreibung und Schemas
 
 
@@ -126,12 +119,6 @@ def test_read_tools_are_no_longer_described_as_placeholders(rpc: Rpc, tool: str)
     description = _tools(rpc)[tool]["description"]
     assert description.strip()
     assert "platzhalter" not in description.lower()
-
-
-@pytest.mark.parametrize("tool", sorted(PLACEHOLDER_TOOLS))
-def test_remaining_placeholders_are_still_described_as_such(rpc: Rpc, tool: str) -> None:
-    """create_lead und log_activity kommen mit F08; bis dahin sagt die Beschreibung ehrlich Platzhalter."""
-    assert "platzhalter" in _tools(rpc)[tool]["description"].lower()
 
 
 @pytest.mark.parametrize("tool", sorted(READ_TOOLS))
@@ -181,7 +168,7 @@ def test_find_customer_input_schema(rpc: Rpc) -> None:
 def test_read_tools_declare_an_output_schema(rpc: Rpc, tool: str, fields: set[str]) -> None:
     """Annahme: Das SDK leitet aus dem Rückgabetyp ein outputSchema ab. Etappe 4 belegt oder ändert das.
 
-    Geprüft werden die festgelegten Feldnamen: Die Platzhalter (Rückgabe str) haben höchstens ein Schema
+    Geprüft werden die festgelegten Feldnamen: Eine Rückgabe vom Typ str hätte höchstens ein Schema
     mit dem Feld "result", das genügt hier nicht.
     """
     output_schema = _tools(rpc)[tool].get("outputSchema")

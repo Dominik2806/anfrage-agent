@@ -6,6 +6,10 @@ Auf stderr steht nur der Name der Variablen, nie ihr Wert.
 Vor dem Start prüft db.verify_read_only_role, dass die Rolle der Verbindung wirklich nur lesen darf. Scheitert
 die Prüfung, bricht der Start mit Exit-Code 1 ab; auf stderr stehen nur die Kurzbezeichnungen der gescheiterten
 Prüfungen, nie URL, Rollenname oder Token. Es gibt keinen Schalter, der die Prüfung abschaltet.
+
+Ist der Schreibweg konfiguriert (MCP_SERVER_WRITE_DATABASE_URL und MCP_SERVER_WRITE_TOKEN, ADR 0005), prüft main()
+danach auch db.verify_write_role. Die Meldungen dieser Prüfung tragen auf stderr den Präfix "Schreibweg:", auch sie
+haben keinen Schalter. Ohne die beiden Schreibvariablen entfällt die Prüfung, und es gibt nur den Endpunkt /mcp.
 """
 
 import os
@@ -34,6 +38,16 @@ def main(env: Mapping[str, str] | None = None) -> None:
     except db.RoleCheckError as exc:
         print(exc, file=sys.stderr)
         raise SystemExit(1) from None
+
+    # Der Schreibweg (ADR 0005) wird nur geprüft, wenn er konfiguriert ist: Lese-Prüfung zuerst, dann diese.
+    # Die Prüfung bekommt eine schreibgeschützte Database (sie liest nur). Der Präfix trennt die Kurzbezeichnungen
+    # von denen der Lese-Prüfung. Kein Schalter.
+    if config.write_enabled:
+        try:
+            db.verify_write_role(db.Database(config.write_database_url))
+        except db.RoleCheckError as exc:
+            print(f"Schreibweg: {exc}", file=sys.stderr)
+            raise SystemExit(1) from None
 
     # Kein Zugriffsprotokoll: Es würde Pfad und Query jeder Anfrage schreiben, auch einer mit falsch
     # platziertem Token.

@@ -48,6 +48,8 @@ könnte auch schreiben, ein Fehler im Code oder in einer Eingabe träfe die Date
   localhost ist für das Deployment (F30) als Härtung vorgesehen.
 - `hoffmann_data/dburl.py` ist eine gekürzte Kopie der URL-Regeln aus `db/seed/guard.py`; `tests/mcp_server/test_dburl_parity.py`
   hält beide gleich. Beides zusammenzuführen ist offen.
+- Nachtrag (F08): Der Schreibweg (`create_lead`, `log_activity`) ist in ADR 0005 geregelt, mit eigener Rolle, eigener Startprüfung
+  und eigenem Token. Diese ADR gilt für die Lese-Werkzeuge unverändert.
 
 ### Grenzen der Startprüfung
 Die Prüfung ist eine **Momentaufnahme** beim Start: Rechte, die später vergeben werden, fallen erst beim nächsten Start auf.

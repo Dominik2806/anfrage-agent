@@ -10,7 +10,6 @@ from typing import Any
 from mcp_testkit import (
     MAX_REQUEST_BODY_BYTES,
     MCP_PATH,
-    NOT_IMPLEMENTED,
     RPC_HEADERS,
     parse_rpc_body,
 )
@@ -18,10 +17,12 @@ from starlette.testclient import TestClient
 
 
 def _body_of_size(size: int) -> bytes:
-    """Gültiger JSON-RPC-Aufruf eines Platzhalter-Werkzeugs mit genau `size` Bytes (nur ASCII).
+    """Gültiger JSON-RPC-Aufruf von search_products mit genau `size` Bytes (nur ASCII).
 
-    create_lead statt eines Lese-Werkzeugs: Die Lese-Werkzeuge prüfen seit F07 ihre Eingabe (höchstens 200
-    Zeichen) und brauchen eine Datenbank; dieser Test prüft nur die Größenbegrenzung der Anfrage.
+    Seit F08 liegt create_lead auf /mcp-write und ist auf /mcp unbekannt (die Größenprüfung dort steht in
+    test_mcp_write_limits.py). search_products prüft seine Eingabe (höchstens 200 Zeichen) vor der Datenbank und
+    antwortet mit einer festen Meldung, ohne eine Datenbank zu brauchen; so ist sichtbar, dass die Anfrage das
+    Werkzeug erreichte. Dieser Test prüft nur die Größenbegrenzung der Anfrage.
     """
 
     def build(pad: int) -> bytes:
@@ -29,7 +30,7 @@ def _body_of_size(size: int) -> bytes:
             "jsonrpc": "2.0",
             "id": 1,
             "method": "tools/call",
-            "params": {"name": "create_lead", "arguments": {"query": "x" * pad}},
+            "params": {"name": "search_products", "arguments": {"query": "x" * pad}},
         }
         return json.dumps(payload).encode("ascii")
 
@@ -46,9 +47,11 @@ def _post(client: TestClient, body: bytes, headers: dict[str, str] | None = None
 def test_body_just_under_the_limit_is_accepted(
     client: TestClient, auth_headers: dict[str, str]
 ) -> None:
+    from hoffmann_data.limits import QUERY_INVALID
+
     response = _post(client, _body_of_size(MAX_REQUEST_BODY_BYTES - 1), auth_headers)
     assert response.status_code == 200
-    assert NOT_IMPLEMENTED in json.dumps(parse_rpc_body(response), ensure_ascii=False)
+    assert QUERY_INVALID in json.dumps(parse_rpc_body(response), ensure_ascii=False)
 
 
 def test_body_over_the_limit_returns_413(client: TestClient, auth_headers: dict[str, str]) -> None:
