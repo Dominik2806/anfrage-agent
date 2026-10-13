@@ -72,6 +72,42 @@ und welche Konsequenz daraus folgte. Neueste Einträge stehen oben.
 - **Konsequenz:** Neue Regel in `mcp-server/CLAUDE.md`: Nachschlagungen, deren Ergebnisse gemeinsam über einen Konflikt entscheiden,
   laufen in einer SQL-Anweisung. Bei Plänen mit mehreren Abfragen vor einer Entscheidung die Isolationsstufe ausdrücklich prüfen.
 
+### 2026-10-13 · F08 · Befunde der Reviewer zur Schreibrolle und zum Schreibweg (Code, Test und Doku von Claude Code)
+- **Aufgabe:** Review von F08 vor dem Herausnehmen von PR #28 aus dem Entwurf: zwei unabhängige Reviews, ein Code-Review und ein
+  Sicherheits-Review, je ein Agent ohne Kenntnis der Arbeit. Die Befunde wurden einzeln eingeordnet, nicht pauschal übernommen.
+- **Verhalten des Agenten:** Der Schreibweg war mit `create_lead`, `log_activity`, Schreibrolle und Startprüfung umgesetzt, die Tests
+  grün. Eingeordnet wurden die Befunde so:
+  - Bestätigt und behoben:
+    - Eine Zusicherung in `test_create_lead.py` zu `created_at` war immer wahr, weil die Spalte in den INSERT-Texten gar nicht vorkommt.
+      Sie wurde durch eine ersetzt, die rot werden kann.
+    - Die Schreibrolle hatte `SELECT` auf `activities`, obwohl der Schreibweg die Tabelle nie liest (INSERT ohne `RETURNING`). Das
+      Recht ist entzogen, die Startprüfung meldet es jetzt (`lesen-unerlaubt:activities`).
+    - Die Startprüfung der Schreibrolle prüfte nicht, ob Row Level Security auf den drei Schreibtabellen aktiv ist. Ergänzt
+      (`rls-aus:<tabelle>`).
+    - Dokumentation und Docstrings beschrieben die Startprüfung und den Schreibweg zu weit oder falsch („nie committet“, „gar kein
+      Recht“, „wird zurückgegeben“). Korrigiert, bekannte Grenzen in ADR 0005 ergänzt.
+    - Der Abbruchpfad (`KeyboardInterrupt`, `BaseException`) in der Schreibverbindung war nicht getestet. Tests ergänzt, zwei
+      Mutationen belegen sie.
+    - Der lokale Teil der E-Mail-Adresse wird wie die Domain auf ASCII beschränkt: `lower()` in Python und in PostgreSQL weicht bei
+      einigen Zeichen ab (Kelvin-Zeichen, İ, ẞ), und das von PostgreSQL hängt von der Locale ab.
+  - Widerlegt durch Messung: Das Sicherheits-Review behauptete, die CHECK-Regel `email = lower(email)` schlage für mit Python
+    kleingeschriebene Werte an. Das stimmte nicht; auf der lokalen Datenbank war die Regel für alle geprüften Zeichen erfüllt
+    (Messung des Menschen). Bestätigt wurde nur die Abhängigkeit von der Locale, die das Code-Review benannt hatte.
+  - Zurückgestellt als Issues #29 bis #34 und #36: Test-Helfer, Grenzen des Schreibwegs, Lücken des SQL-Regeltests, fester Rollenname,
+    Unicode, SDK-Log von Host und Origin, Wortlaut der Policies. Issue #25 (Deadlock im Test-Setup) bekam einen Kommentar zur möglichen
+    gleichen Ursache wie beim Deadlock in F08 (Eintrag oben).
+- **Fehler:** Die Befunde betreffen eine Zusicherung, die nichts prüfte, ein Recht, das die Rolle nicht brauchte, eine fehlende Prüfung
+  in der Startprüfung, Doku und Docstrings, die mehr behaupteten, als belegt war, einen ungetesteten Abbruchpfad und eine Eingaberegel,
+  die zwischen Python und PostgreSQL auseinanderlaufen konnte. Beim Schreiben der roten Tests zur Härtung kam ein eigener Fehler dazu:
+  Ein Test (erneutes Ausführen des Rollenskripts nach altem Stand) scheiterte zunächst an seiner eigenen Vorbereitung (die Policy
+  existierte schon, `DuplicateObject`) und war damit aus dem falschen Grund rot.
+- **Entdeckung:** Reviews durch die zwei Agenten vor dem Herausnehmen aus dem Entwurf; die Widerlegung durch eine Messung des Menschen;
+  die falsch rote Vorbereitung im Lauf der roten Tests durch den Menschen.
+- **Korrektur:** Die Punkte oben, jeweils zuerst als Test, dann die Umsetzung, dann die Doku. Die Vorbereitung des Tests löscht die
+  Policy vorher mit `DROP POLICY IF EXISTS`, bevor die Umsetzung kam; seine Zusicherungen blieben.
+- **Konsequenz:** Eine behauptete Wirkung wird gemessen, bevor man darauf aufbaut, auch wenn die Quelle ein Review ist. Ein roter Test
+  ist erst belegt, wenn er an der Zusicherung scheitert, nicht an einem Fehler im Aufbau. Review-Befunde mit Issue-Nummer festhalten.
+
 ### 2026-10-09 · F07 · Rollen-Skript nur als Superuser getestet, auf Supabase abgebrochen (Code und Test von Claude Code)
 - **Aufgabe:** Rollen-Skript `db/roles/data_service_ro.sql` und seine Tests schreiben (Etappe 1), dazu die Anleitung zum Einspielen
   (Supabase SQL-Editor oder `psql`).
