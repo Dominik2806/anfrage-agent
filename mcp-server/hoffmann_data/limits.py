@@ -36,10 +36,17 @@ Zeichen wie das Kelvin-Zeichen in ein ASCII-k verwandeln und eine fremde Schreib
 und das lower() von PostgreSQL hängt von der Locale der Datenbank ab.
 Die Domainregel hier (_SCHEMA_DOMAIN) ist die strenge Regel des Schreibens; die lockere Regel der Suche in crm.py
 (find_customer) ist eine andere und bleibt unverändert.
+
+Prompt antwort_entwurf (F09, ADR 0006): anfrage (Pflicht) hat 1 bis 5000 Zeichen, kunde (optional) höchstens 2000 und
+belegte_angaben (optional) höchstens 4000. Es sind Freitexte: Zeilenumbruch, Wagenrücklauf und Tab sind erlaubt, andere
+Zeichen der Kategorien C*, Zl und Zp nicht. sprache (Pflicht) wird wie bei den Schreib-Werkzeugen exakt verglichen. Ein
+optionales Argument, das fehlt oder nach strip() leer ist, gilt als nicht angegeben (check_optional_free_text); ein Wert
+nur aus Steuerzeichen bleibt ungültig, ebenso ein leeres Pflichtargument. Die Meldungen sind fest und nennen nie den Wert.
 """
 
 import re
 import unicodedata
+from collections.abc import Callable
 from typing import Any
 
 from mcp.server.mcpserver.exceptions import ToolError
@@ -72,6 +79,10 @@ ALLOWED_INDUSTRIES = (
 DEFAULT_INDUSTRY = "other"
 # Nur diese Typen darf die Schreibrolle anlegen (INSERT-Policy auf activities in db/roles/data_service_rw.sql)
 ACTIVITY_TYPES = ("inquiry", "complaint", "note")
+# Prompt antwort_entwurf (F09, ADR 0006). Die Längen sind Annahmen für F14.
+MAX_INQUIRY_LENGTH = 5000
+MAX_CUSTOMER_INFO_LENGTH = 2000
+MAX_FACTS_LENGTH = 4000
 
 
 def _listing(values: tuple[str, ...]) -> str:
@@ -145,6 +156,25 @@ CONTACT_NOT_FOUND = "Der Kontakt ist für diesen Kunden nicht bekannt."
 LEAD_CONFLICT = (
     "Der Lead steht in Konflikt mit bestehenden Daten und wurde nicht angelegt. "
     "Ein Mitarbeiter muss ihn prüfen."
+)
+
+# Prompt antwort_entwurf (F09): je Argument eine feste Meldung, die den Wert nie nennt. Sprache: LANGUAGE_INVALID.
+INQUIRY_INVALID = (
+    f"Die Anfrage ist ungültig: Erwartet werden 1 bis {MAX_INQUIRY_LENGTH} Zeichen; Zeilenumbruch, "
+    f"Wagenrücklauf und Tab sind erlaubt, andere {_CONTROL_CHARACTERS} nicht."
+)
+CUSTOMER_INFO_INVALID = (
+    f"Die Kundenangaben sind ungültig: Erwartet werden 1 bis {MAX_CUSTOMER_INFO_LENGTH} Zeichen; "
+    f"Zeilenumbruch, Wagenrücklauf und Tab sind erlaubt, andere {_CONTROL_CHARACTERS} nicht; "
+    "sie dürfen fehlen."
+)
+FACTS_INVALID = (
+    f"Die belegten Angaben sind ungültig: Erwartet werden 1 bis {MAX_FACTS_LENGTH} Zeichen; "
+    f"Zeilenumbruch, Wagenrücklauf und Tab sind erlaubt, andere {_CONTROL_CHARACTERS} nicht; "
+    "sie dürfen fehlen."
+)
+PROMPT_ARGUMENTS_UNKNOWN = (
+    "Ein Argument ist nicht vorgesehen: Erlaubt sind sprache, anfrage, kunde und belegte_angaben."
 )
 
 _ARTICLE_NUMBER = re.compile(r"[A-Z]{2}-[0-9]{4}(-[A-Z0-9]{1,4})?")
@@ -325,3 +355,31 @@ def check_subject(value: Any) -> str:
 def check_summary(value: Any) -> str:
     """Zusammenfassung, 1 bis MAX_SUMMARY_LENGTH Zeichen: der bereinigte Text oder ToolError(SUMMARY_INVALID)."""
     return _check_free_text(value, SUMMARY_INVALID, MAX_SUMMARY_LENGTH)
+
+
+# Prompt antwort_entwurf (F09): ein fehlendes Argument (None) ist ungültig wie jeder andere falsche Wert
+
+
+def check_inquiry(value: Any) -> str:
+    """Kundentext, 1 bis MAX_INQUIRY_LENGTH Zeichen: der bereinigte Text oder ToolError(INQUIRY_INVALID)."""
+    return _check_free_text(value, INQUIRY_INVALID, MAX_INQUIRY_LENGTH)
+
+
+def check_customer_info(value: Any) -> str:
+    """Kundenangaben, 1 bis MAX_CUSTOMER_INFO_LENGTH Zeichen: der bereinigte Text oder ToolError(CUSTOMER_INFO_INVALID)."""
+    return _check_free_text(value, CUSTOMER_INFO_INVALID, MAX_CUSTOMER_INFO_LENGTH)
+
+
+def check_facts(value: Any) -> str:
+    """Belegte Angaben, 1 bis MAX_FACTS_LENGTH Zeichen: der bereinigte Text oder ToolError(FACTS_INVALID)."""
+    return _check_free_text(value, FACTS_INVALID, MAX_FACTS_LENGTH)
+
+
+def check_optional_free_text(value: Any, check: Callable[[Any], str]) -> str | None:
+    """Optionaler Freitext: None, wenn er fehlt (None) oder nach strip() leer ist; sonst das Ergebnis von `check`.
+
+    Ein Wert nur aus Steuerzeichen ist nicht leer und geht an `check`, das ihn ablehnt.
+    """
+    if value is None or (isinstance(value, str) and not value.strip()):
+        return None
+    return check(value)
