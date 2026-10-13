@@ -241,7 +241,11 @@ def test_domain_rule_matches_the_schema_regex() -> None:
 
 
 def test_email_rule_matches_the_schema_regex() -> None:
-    """check_email nimmt eine Adresse genau dann an, wenn sie den CHECK von contacts.email erfüllt (nach lower())."""
+    """check_email nimmt eine Adresse genau dann an, wenn sie den CHECK von contacts.email erfüllt (nach lower()).
+
+    Gilt für Adressen mit ASCII-Lokalteil. Das Schema erlaubt vor dem @ jedes Zeichen außer @ und Leerraum, check_email
+    nur ASCII (siehe test_check_email_rejects_a_non_ascii_local_part_with_the_fixed_message).
+    """
     pattern = _schema_pattern("contacts_email_format", "email")
     for domain in [*DOMAINS_VALID, *DOMAINS_INVALID]:
         email = f"kontakt@{domain}"
@@ -417,9 +421,7 @@ def test_job_title_rejects_non_strings_but_not_none(value: Any) -> None:
         ("a@b.example", "a@b.example"),
         ("a@mail.firma.example", "a@mail.firma.example"),
         ("max.mustermann+tag@firma-x.example", "max.mustermann+tag@firma-x.example"),
-        ("müller@firma.example", "müller@firma.example"),
         ("a" * 240 + "@firma.example", "a" * 240 + "@firma.example"),  # genau 254
-        ("ä" * 240 + "@firma.example", "ä" * 240 + "@firma.example"),  # Zeichen, nicht Bytes
         ("  " + "a" * 240 + "@firma.example" + "  ", "a" * 240 + "@firma.example"),
         ("kontakt@xn--mller-kva.example", "kontakt@xn--mller-kva.example"),
     ],
@@ -431,9 +433,7 @@ def test_job_title_rejects_non_strings_but_not_none(value: Any) -> None:
         "kurz",
         "subdomain",
         "plus-und-punkt",
-        "umlaut-im-lokalteil",
         "genau-254",
-        "umlaute-254",
         "254-nach-strip",
         "punycode",
     ],
@@ -483,6 +483,49 @@ EMAIL_REJECTED = [
 @pytest.mark.parametrize("value", EMAIL_REJECTED, ids=repr)
 def test_check_email_rejects_with_the_fixed_message(value: str) -> None:
     assert_rejected("check_email", "EMAIL_INVALID", value)
+
+
+# Nur ASCII vor dem @: Das lower() von Python und das von PostgreSQL unterscheiden sich bei diesen Zeichen (und das
+# von PostgreSQL hängt von der Locale ab). Das Kelvin-Zeichen macht Python zu einem ASCII-k.
+NON_ASCII_LOCAL_PARTS = {
+    "umlaut": "m" + chr(0xFC) + "ller",
+    "umlaute-254": chr(0xE4) * 240,  # Länge der Adresse genau 254: nur Nicht-ASCII ist der Grund
+    "kelvin": chr(0x212A) + "ontakt",
+    "i-mit-punkt": "kontakt" + chr(0x130),
+    "scharfes-s-gross": "stra" + chr(0x1E9E) + "e",
+    "andere-schrift": chr(0x4E2D) + chr(0x6587),
+}
+
+
+@pytest.mark.parametrize("local", NON_ASCII_LOCAL_PARTS.values(), ids=NON_ASCII_LOCAL_PARTS.keys())
+def test_check_email_rejects_a_non_ascii_local_part_with_the_fixed_message(local: str) -> None:
+    assert_rejected("check_email", "EMAIL_INVALID", f"{local}@firma.example")
+    assert_rejected("check_email", "EMAIL_INVALID", f"  {local.upper()}@FIRMA.EXAMPLE  ")
+
+
+def test_check_email_does_not_echo_a_non_ascii_local_part() -> None:
+    """Der Marker steht im Lokalteil; die feste Meldung nennt weder ihn noch die Adresse."""
+    value = SECRET_MARKER + chr(0xFC) + "x" * 40 + "@firma.example"
+    assert_rejected("check_email", "EMAIL_INVALID", value)
+
+
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [
+        ("Max.Muster@Firma.Example", "max.muster@firma.example"),
+        ("MAX_MUSTER@firma.example", "max_muster@firma.example"),
+        ("Max-Muster@firma.example", "max-muster@firma.example"),
+        ("Max+Tag@firma.example", "max+tag@firma.example"),
+        ("A.B_C-D+E@firma.example", "a.b_c-d+e@firma.example"),
+    ],
+    ids=["punkt", "unterstrich", "bindestrich", "plus", "alle-zusammen"],
+)
+def test_check_email_keeps_an_ascii_local_part_valid_and_lowercases_it(
+    value: str, expected: str
+) -> None:
+    from hoffmann_data.limits import check_email
+
+    assert check_email(value) == expected
 
 
 @pytest.mark.parametrize(

@@ -958,6 +958,18 @@ INVALID_VALUES: list[Any] = [
     pytest.param("contact_email", "a" * 241 + "@firma.example", "EMAIL_INVALID", id="adresse-255"),
     pytest.param("contact_email", "x@firma.de", "EMAIL_INVALID", id="adresse-nicht-example"),
     pytest.param("contact_email", 5, "EMAIL_INVALID", id="adresse-zahl"),
+    pytest.param(
+        "contact_email",
+        "m" + chr(0xFC) + "ller@firma.example",
+        "EMAIL_INVALID",
+        id="adresse-umlaut-lokalteil",
+    ),
+    pytest.param(
+        "contact_email",
+        chr(0x212A) + "ontakt@firma.example",
+        "EMAIL_INVALID",
+        id="adresse-kelvin-lokalteil",
+    ),
     pytest.param("language", "fr", "LANGUAGE_INVALID", id="sprache-fr"),
     pytest.param("language", "DE", "LANGUAGE_INVALID", id="sprache-gross"),
     pytest.param("language", None, "LANGUAGE_INVALID", id="sprache-none"),
