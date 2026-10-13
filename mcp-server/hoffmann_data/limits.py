@@ -23,6 +23,7 @@ Schreib-Werkzeuge create_lead und log_activity (F08, ADR 0005): Jede Funktion pr
 - E-Mail höchstens 254 Zeichen, genau ein @, Lokalteil und Domain nicht leer, kein Leerraum, keine Steuer-, Format-
   und Trennzeichen. Die Domain entspricht den CHECKs von customers.domain und contacts.email in db/schema.sql
   (nur ASCII-Labels aus [a-z0-9-], endet auf .example, keine leeren Labels; Domain höchstens 253 Zeichen).
+  Auch der Teil vor dem @ muss reines ASCII sein (Großbuchstaben sind erlaubt und werden kleingeschrieben).
 - Sprache, Land, Branche und Aktivitätstyp: nur die Werte des Schemas (der Aktivitätstyp nur die drei, die die Rolle
   data_service_rw schreiben darf).
 
@@ -30,8 +31,9 @@ Unterschied beim Bereinigen: Die Aufzählungen werden exakt verglichen, ohne str
 Schlüsselwörter, die der Aufrufer genau so schreiben muss, wie das Schema sie kennt; eine stille Korrektur ("DE",
 " de") würde Fehler des Aufrufers verdecken. E-Mail und Domain werden dagegen bereinigt und klein zurückgegeben,
 weil das Schema email = lower(email) und domain = lower(domain) verlangt und Absender ihre Adresse beliebig
-schreiben. Die Domain muss vorher reines ASCII sein: lower() würde sonst Zeichen wie das Kelvin-Zeichen in ein
-ASCII-k verwandeln und eine fremde Schreibweise stillschweigend gültig machen.
+schreiben. Die Domain und der Teil der E-Mail-Adresse vor dem @ müssen vorher reines ASCII sein: lower() würde sonst
+Zeichen wie das Kelvin-Zeichen in ein ASCII-k verwandeln und eine fremde Schreibweise stillschweigend gültig machen,
+und das lower() von PostgreSQL hängt von der Locale der Datenbank ab.
 Die Domainregel hier (_SCHEMA_DOMAIN) ist die strenge Regel des Schreibens; die lockere Regel der Suche in crm.py
 (find_customer) ist eine andere und bleibt unverändert.
 """
@@ -111,7 +113,8 @@ JOB_TITLE_INVALID = (
 )
 EMAIL_INVALID = (
     f"Die E-Mail-Adresse ist ungültig: Erwartet wird eine Adresse mit höchstens {MAX_EMAIL_LENGTH} "
-    f"Zeichen, genau einem @ und einer Domain auf .example, ohne Leerraum, {_CONTROL_CHARACTERS}."
+    f"Zeichen, genau einem @ und einer Domain auf .example, ohne Leerraum, {_CONTROL_CHARACTERS}. "
+    "Der Teil vor dem @ besteht nur aus ASCII-Zeichen."
 )
 DOMAIN_INVALID = (
     f"Die Domain ist ungültig: Erwartet wird eine Domain auf .example mit höchstens "
@@ -254,15 +257,17 @@ def check_job_title(value: Any) -> str | None:
 def check_email(value: Any) -> str:
     """E-Mail-Adresse: die bereinigte Adresse in Kleinbuchstaben oder ToolError(EMAIL_INVALID).
 
-    Das Schema verlangt email = lower(email), deshalb wird die ganze Adresse klein zurückgegeben.
+    Das Schema verlangt email = lower(email), deshalb wird die ganze Adresse klein zurückgegeben. Der Teil vor dem @
+    und die Domain müssen reines ASCII sein: Dann gibt lower() in Python und in PostgreSQL dasselbe Ergebnis.
     """
     text = _prepare(value, EMAIL_INVALID, MAX_EMAIL_LENGTH)
     if any(character.isspace() or _is_rejected_character(character) for character in text):
         raise ToolError(EMAIL_INVALID)
     local, separator, domain = text.partition("@")
-    # Genau ein @ (ein zweites steht dann in domain), Lokalteil nicht leer; die Domain nur als ASCII, weil lower()
-    # sonst Nicht-ASCII-Zeichen in ASCII-Buchstaben verwandeln würde
-    if not separator or not local or "@" in domain or not domain.isascii():
+    # Genau ein @ (ein zweites steht dann in domain), Lokalteil nicht leer; Lokalteil und Domain nur als ASCII, weil
+    # lower() sonst Nicht-ASCII-Zeichen in ASCII-Buchstaben verwandeln würde (zum Beispiel das Kelvin-Zeichen in k)
+    # und das lower() von PostgreSQL von der Locale der Datenbank abhängt
+    if not separator or not local or "@" in domain or not local.isascii() or not domain.isascii():
         raise ToolError(EMAIL_INVALID)
     domain = domain.lower()
     if _SCHEMA_DOMAIN.fullmatch(domain) is None:
