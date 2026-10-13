@@ -1,8 +1,9 @@
 """Tests des Rollen-Skripts db/roles/data_service_rw.sql (F08, ADR 0005, Etappe 1).
 
 Die Schreibrolle darf Leads und Aktivitäten anlegen, sonst nichts (Auftrag 5.1): INSERT und SELECT auf
-customers, contacts und activities, je eine SELECT- und eine INSERT-Policy (die INSERT-Policy mit WITH CHECK),
-kein UPDATE, DELETE, TRUNCATE, kein Zugriff auf products, product_fits und discount_rules. Die Tests ohne
+customers und contacts, auf activities nur INSERT (Etappe 5b), je eine INSERT-Policy mit WITH CHECK und eine
+SELECT-Policy auf customers und contacts, kein UPDATE, DELETE, TRUNCATE, kein Zugriff auf products, product_fits
+und discount_rules. Die Tests ohne
 Datenbank prüfen den Text des Skripts, die übrigen führen es unter einem Zufallsnamen in der Test-Transaktion
 aus (Fixture rw_role) und probieren die Rolle mit SET LOCAL ROLE. Alles wird am Ende des Tests zurückgerollt.
 
@@ -29,6 +30,9 @@ from mcp_testkit import (
 from psycopg import errors, sql
 
 WRITE_TABLES = ("customers", "contacts", "activities")
+# Etappe 5b: Lesen und anlegen nur hier; auf activities nur anlegen
+READ_WRITE_TABLES = ("customers", "contacts")
+POLICY_COUNT = len(READ_WRITE_TABLES) + len(WRITE_TABLES)
 FORBIDDEN_TABLES = ("products", "product_fits", "discount_rules")
 SCHEMA_TABLES = (
     "products",
@@ -109,6 +113,17 @@ def test_role_script_grants_only_usage_select_and_insert() -> None:
     assert not re.search(r"\b(UPDATE|DELETE|TRUNCATE)\b", code, re.I)
 
 
+def test_role_script_grants_select_only_on_customers_and_contacts() -> None:
+    """Etappe 5b: activities wird nur angelegt, nie gelesen. Die DROP-Zeile bleibt und räumt den alten Stand auf."""
+    code = _script_code()
+    select_tables = set()
+    for tables in re.findall(r"\bGRANT\s+SELECT\s+ON\s+([^;]*?)\s+TO\b", code, re.I):
+        select_tables |= {name.strip() for name in tables.split(",")}
+    assert select_tables == set(READ_WRITE_TABLES), select_tables
+    assert not re.search(r"CREATE\s+POLICY\s+rw_select\s+ON\s+activities\b", code, re.I)
+    assert re.search(r"DROP\s+POLICY\s+IF\s+EXISTS\s+rw_select\s+ON\s+activities\s*;", code, re.I)
+
+
 def test_role_script_does_not_mention_the_forbidden_tables() -> None:
     code = _script_code()
     for table in FORBIDDEN_TABLES:
@@ -148,12 +163,12 @@ def test_script_can_run_twice_without_duplicating_policies(
         assert found is not None
         return int(found[0])
 
-    assert policy_count() == 2 * len(WRITE_TABLES)
+    assert policy_count() == POLICY_COUNT
     conn.execute(render_write_role_script(rw_role))
-    assert policy_count() == 2 * len(WRITE_TABLES)
+    assert policy_count() == POLICY_COUNT
 
 
-def test_each_table_has_exactly_one_select_and_one_insert_policy(
+def test_policies_are_one_insert_per_table_and_one_select_for_customers_and_contacts(
     conn: psycopg.Connection[Any], rw_role: str
 ) -> None:
     rows = conn.execute(
@@ -164,15 +179,54 @@ def test_each_table_has_exactly_one_select_and_one_insert_policy(
     expected = []
     for table in sorted(WRITE_TABLES):
         expected.append((table, "INSERT", "PERMISSIVE", True))
-        expected.append((table, "SELECT", "PERMISSIVE", False))
+        if table in READ_WRITE_TABLES:
+            expected.append((table, "SELECT", "PERMISSIVE", False))
     assert rows == expected
+
+
+def test_applying_the_script_again_takes_the_old_select_on_activities_away(
+    conn: psycopg.Connection[Any], rw_role: str
+) -> None:
+    """Ein Betrieb mit dem Stand vor Etappe 5b: SELECT-Recht und Policy auf activities sind vorhanden.
+
+    Das erneute Ausführen des Skripts entzieht das Recht (REVOKE ALL) und löscht die Policy (DROP POLICY IF EXISTS).
+    """
+    role = sql.Identifier(rw_role)
+    # Die Vorbereitung gilt unabhängig vom Stand des Skripts: GRANT ist wiederholbar, die Policy wird ersetzt
+    conn.execute(sql.SQL("GRANT SELECT ON activities TO {}").format(role))
+    conn.execute("DROP POLICY IF EXISTS rw_select ON activities")
+    conn.execute(
+        sql.SQL("CREATE POLICY rw_select ON activities FOR SELECT TO {} USING (true)").format(role)
+    )
+    conn.execute(render_write_role_script(rw_role))
+    rights = conn.execute(
+        "SELECT has_table_privilege(%s::name, to_regclass('activities'), 'SELECT'), "
+        "has_any_column_privilege(%s::name, to_regclass('activities'), 'SELECT')",
+        (rw_role, rw_role),
+    ).fetchone()
+    assert rights == (False, False)
+    left = conn.execute(
+        "SELECT count(*) FROM pg_policies WHERE schemaname = current_schema() "
+        "AND tablename = 'activities' AND cmd = 'SELECT' AND %s = ANY(roles)",
+        (rw_role,),
+    ).fetchone()
+    assert left == (0,)
+    total = conn.execute(
+        "SELECT count(*) FROM pg_policies WHERE schemaname = current_schema() AND %s = ANY(roles)",
+        (rw_role,),
+    ).fetchone()
+    assert total == (POLICY_COUNT,)
 
 
 # Mit Datenbank: was die Rolle darf und nicht darf
 
 
-def _insert_one_row(conn: psycopg.Connection[Any], table: str, parent: int | None) -> int:
-    """Legt als aktuelle Rolle eine gültige Minimalzeile an und gibt ihre id zurück (RETURNING braucht SELECT)."""
+def _insert_one_row(conn: psycopg.Connection[Any], table: str, parent: int | None) -> int | None:
+    """Legt als aktuelle Rolle eine gültige Minimalzeile an.
+
+    Auf customers und contacts kommt die id zurück (RETURNING braucht SELECT). Auf activities hat die Rolle kein
+    SELECT (Etappe 5b): kein RETURNING, Rückgabe None. Eine Ablehnung kommt so von der Policy, nicht vom Recht.
+    """
     suffix = uuid.uuid4().hex[:10]
     if table == "customers":
         found = conn.execute(
@@ -187,16 +241,17 @@ def _insert_one_row(conn: psycopg.Connection[Any], table: str, parent: int | Non
             (parent, f"kontakt-{suffix}@schreibtest.example"),
         ).fetchone()
     else:
-        found = conn.execute(
+        conn.execute(
             "INSERT INTO activities (customer_id, type, occurred_at, subject, summary, created_by) "
-            "VALUES (%s, 'inquiry', now(), 'Betreff', 'Zusammenfassung', 'agent') RETURNING id",
+            "VALUES (%s, 'inquiry', now(), 'Betreff', 'Zusammenfassung', 'agent')",
             (parent,),
-        ).fetchone()
+        )
+        return None
     assert found is not None
     return int(found[0])
 
 
-@pytest.mark.parametrize("table", WRITE_TABLES)
+@pytest.mark.parametrize("table", READ_WRITE_TABLES)
 def test_role_can_insert_and_select(
     conn: psycopg.Connection[Any], rw_role: str, make: Any, table: str
 ) -> None:
@@ -212,6 +267,46 @@ def test_role_can_insert_and_select(
             (new_id,),
         ).fetchone()
     assert found == (1,)
+
+
+def test_role_can_insert_an_activity_without_reading_it(
+    conn: psycopg.Connection[Any], rw_role: str, make: Any
+) -> None:
+    """Auf activities legt die Rolle an, ohne die Zeile lesen zu können (gezählt wird als Eigentümer)."""
+    parent = make.customer()
+    before = _count_rows(conn, "activities")
+    with as_role(conn, rw_role):
+        assert _insert_one_row(conn, "activities", parent) is None
+    assert _count_rows(conn, "activities") == before + 1
+
+
+def test_role_has_no_select_privilege_on_activities(
+    conn: psycopg.Connection[Any], rw_role: str
+) -> None:
+    """Kein SELECT auf activities, weder als Tabellen- noch als Spaltenrecht; INSERT bleibt (Etappe 5b)."""
+    table_select = conn.execute(
+        "SELECT has_table_privilege(%s::name, to_regclass('activities'), 'SELECT'), "
+        "has_any_column_privilege(%s::name, to_regclass('activities'), 'SELECT'), "
+        "has_table_privilege(%s::name, to_regclass('activities'), 'INSERT')",
+        (rw_role, rw_role, rw_role),
+    ).fetchone()
+    assert table_select == (False, False, True)
+
+
+def test_role_cannot_read_activities(
+    conn: psycopg.Connection[Any], rw_role: str, make: Any
+) -> None:
+    """Weder ein SELECT noch ein INSERT mit RETURNING (das braucht SELECT) gelingt unter der Rolle."""
+    parent = make.customer()
+    with as_role(conn, rw_role):
+        for statement in (
+            "SELECT count(*) FROM activities",
+            "INSERT INTO activities (customer_id, type, occurred_at, subject, summary, created_by) "
+            "VALUES (%s, 'inquiry', now(), 'Betreff', 'Zusammenfassung', 'agent') RETURNING id",
+        ):
+            with pytest.raises(errors.InsufficientPrivilege):
+                with conn.transaction():
+                    conn.execute(statement, (parent,) if "%s" in statement else None)
 
 
 @pytest.mark.parametrize("table", WRITE_TABLES)
@@ -284,7 +379,7 @@ def _policy_name(conn: psycopg.Connection[Any], role: str, table: str, command: 
     return str(found[0][0])
 
 
-@pytest.mark.parametrize("table", WRITE_TABLES)
+@pytest.mark.parametrize("table", READ_WRITE_TABLES)
 def test_without_the_select_policy_no_row_is_visible(
     conn: psycopg.Connection[Any], rw_role: str, make: Any, table: str
 ) -> None:
@@ -444,7 +539,7 @@ def test_script_runs_twice_as_a_non_superuser_with_hosting_attributes(
         "SELECT count(*) FROM pg_policies WHERE schemaname = current_schema() AND %s = ANY(roles)",
         (rw,),
     ).fetchone()
-    assert policies == (2 * len(WRITE_TABLES),)
+    assert policies == (POLICY_COUNT,)
 
 
 # Mit Datenbank: Die INSERT-Policies beschränken, was die Rolle anlegen darf (ADR 0005, Punkt 7)
@@ -481,15 +576,14 @@ def _insert_activity(
     activity_type: str,
     created_by: str,
     product_id: int | None = None,
-) -> int:
-    found = conn.execute(
+) -> None:
+    """Ohne RETURNING: Die Rolle hat auf activities kein SELECT, eine Ablehnung soll von der Policy kommen."""
+    conn.execute(
         "INSERT INTO activities "
         "(customer_id, product_id, type, occurred_at, subject, summary, created_by) "
-        "VALUES (%s, %s, %s, now(), 'Betreff', 'Zusammenfassung', %s) RETURNING id",
+        "VALUES (%s, %s, %s, now(), 'Betreff', 'Zusammenfassung', %s)",
         (customer_id, product_id, activity_type, created_by),
-    ).fetchone()
-    assert found is not None
-    return int(found[0])
+    )
 
 
 def _assert_refused(
@@ -568,7 +662,8 @@ def test_role_can_insert_an_activity_as_agent_with_each_allowed_type(
     conn: psycopg.Connection[Any], rw_role: str, make: Any, activity_type: str
 ) -> None:
     customer = make.customer()
+    before = _count_rows(conn, "activities")
     with as_role(conn, rw_role):
-        new_id = _insert_activity(conn, customer, activity_type, "agent")
-        found = conn.execute("SELECT count(*) FROM activities WHERE id = %s", (new_id,)).fetchone()
-    assert found == (1,)
+        _insert_activity(conn, customer, activity_type, "agent")
+    # Gezählt wird als Eigentümer: Die Rolle selbst darf activities nicht lesen
+    assert _count_rows(conn, "activities") == before + 1

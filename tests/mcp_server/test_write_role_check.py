@@ -1,7 +1,8 @@
 """Tests der Startprüfung der Schreibrolle: hoffmann_data/db.py, verify_write_role (F08, ADR 0005, Etappe 1).
 
-Die Schreibrolle (db/roles/data_service_rw.sql) darf auf customers, contacts und activities genau SELECT und
-INSERT, auf products, product_fits und discount_rules nichts. Die Prüfung ist eine Momentaufnahme beim Start;
+Die Schreibrolle (db/roles/data_service_rw.sql) darf auf customers und contacts genau SELECT und INSERT, auf
+activities genau INSERT (Etappe 5b), auf products, product_fits und discount_rules nichts. Row Level Security muss
+auf den drei Schreibtabellen aktiv sein. Die Prüfung ist eine Momentaufnahme beim Start;
 die Datenbank bleibt die eigentliche Sperre. Es gibt keinen Schalter. Diese Tests sind rot, bis verify_write_role
 und das Rollen-Skript existieren (TDD). Nicht in dieser Etappe: main() und Konfiguration.
 
@@ -10,12 +11,13 @@ Schnittstelle, die diese Tests festlegen (Form wie verify_read_only_role, test_r
   (SELECT oder WITH), liest die Rolle current_user (nicht session_user) und gibt None zurück oder wirft
   db.RoleCheckError.
 - RoleCheckError.failed: Tupel der Kurzbezeichnungen in fester Reihenfolge:
-  1 rolle-ist-superuser, 2 rolle-umgeht-rls,
-  3 schreibrecht:<RECHT>:<tabelle> für UPDATE, DELETE, TRUNCATE auf customers, contacts, activities (je Tabelle in
-    dieser Reihenfolge, auch als Spaltenrecht bei UPDATE),
+  1 rolle-ist-superuser, 2 rolle-umgeht-rls, 2a rls-aus:<tabelle> je Schreibtabelle (relrowsecurity falsch),
+  3 je Tabelle customers, contacts, activities in dieser Reihenfolge: bei activities zuerst lesen-unerlaubt:activities
+    (SELECT, auch als Spaltenrecht), dann schreibrecht:<RECHT>:<tabelle> für UPDATE, DELETE, TRUNCATE (auch als
+    Spaltenrecht bei UPDATE),
   4 je Tabelle products, product_fits, discount_rules: lesen-unerlaubt:<tabelle> (SELECT, auch als Spaltenrecht),
     dann schreibrecht:<RECHT>:<tabelle> für INSERT, UPDATE, DELETE, TRUNCATE (INSERT und UPDATE auch als Spaltenrecht),
-  5 kein-select:<tabelle> je Schreibtabelle, danach fehlendes-recht:<INSERT>:<tabelle> je Schreibtabelle,
+  5 kein-select:<tabelle> für customers und contacts, danach fehlendes-recht:<INSERT>:<tabelle> je Schreibtabelle,
   6 create-im-schema,
   7 tabelle-fehlt:<tabelle> (nur diese, nicht zusätzlich eine andere Kurzbezeichnung zu dieser Tabelle),
   datenbankfehler (Verbindung oder Abfrage scheitert; genau ein WARNING von hoffmann_data.db mit Klasse und SQLSTATE).
@@ -65,11 +67,13 @@ COLUMN_OF = {
     "product_fits": "note",
     "discount_rules": "description",
 }
+# Etappe 5b: SELECT und INSERT Pflicht nur auf customers und contacts; auf activities ist SELECT unerlaubt
+SELECT_REQUIRED = ("customers", "contacts")
+INSERT_ONLY = ("activities",)
 # Fehlendes SELECT auf einer Schreibtabelle: feste Literale wie NO_SELECT_FAILURES in db.py
 NO_SELECT = {
     "customers": "kein-select:customers",
     "contacts": "kein-select:contacts",
-    "activities": "kein-select:activities",
 }
 WRITE_WORDS = re.compile(
     r"\b(INSERT|UPDATE|DELETE|TRUNCATE|CREATE|ALTER|DROP|GRANT|COPY|MERGE)\b", re.IGNORECASE
@@ -91,6 +95,14 @@ def missing_right(table: str) -> str:
 
 def table_missing(table: str) -> str:
     return f"tabelle-fehlt:{table}"
+
+
+def rls_off(table: str) -> str:
+    return f"rls-aus:{table}"
+
+
+def _disable_rls(conn: Any, table: str) -> None:
+    conn.execute(sql.SQL("ALTER TABLE {} DISABLE ROW LEVEL SECURITY").format(sql.Identifier(table)))
 
 
 # Hilfen (bewusst nicht aus test_role_check.py importiert: Tests importieren einander nicht)
@@ -333,7 +345,7 @@ def test_a_column_privilege_on_a_forbidden_table_is_found(
     assert error.failed == (expected,)
 
 
-@pytest.mark.parametrize("table", WRITE_TABLES)
+@pytest.mark.parametrize("table", SELECT_REQUIRED)
 def test_a_missing_select_privilege_is_found(
     conn: Any, rw_role: str, rw_database: Any, table: str
 ) -> None:
@@ -341,6 +353,59 @@ def test_a_missing_select_privilege_is_found(
     error = _error(rw_database)
     assert error.failed == (NO_SELECT[table],)
     assert NO_SELECT[table] in str(error)
+
+
+@pytest.mark.parametrize("table", INSERT_ONLY)
+def test_select_on_an_insert_only_table_is_found(
+    conn: Any, rw_role: str, rw_database: Any, table: str
+) -> None:
+    """Etappe 5b: Der Schreibweg liest activities nie; ein SELECT-Recht ist unerlaubt."""
+    _grant(conn, "SELECT", table, rw_role)
+    error = _error(rw_database)
+    assert error.failed == (foreign_read(table),)
+    assert foreign_read(table) in str(error)
+
+
+@pytest.mark.parametrize("table", INSERT_ONLY)
+def test_a_select_column_privilege_on_an_insert_only_table_is_found(
+    conn: Any, rw_role: str, rw_database: Any, table: str
+) -> None:
+    """Auch ein Spaltenrecht SELECT genügt, um Zeilen zu lesen."""
+    _grant_column(conn, "SELECT", table, COLUMN_OF[table], rw_role)
+    error = _error(rw_database)
+    assert error.failed == (foreign_read(table),)
+
+
+@pytest.mark.parametrize("table", INSERT_ONLY)
+def test_no_select_on_an_insert_only_table_is_the_expected_state(
+    conn: Any, rw_role: str, rw_database: Any, table: str
+) -> None:
+    """Die Rolle aus dem Skript hat kein SELECT auf activities; das ist der Sollzustand, kein Fehler."""
+    _revoke(conn, "SELECT", table, rw_role)
+    from hoffmann_data import db
+
+    assert db.verify_write_role(rw_database) is None
+
+
+@pytest.mark.parametrize("table", WRITE_TABLES)
+def test_row_level_security_off_is_found(
+    conn: Any, rw_role: str, rw_database: Any, table: str
+) -> None:
+    """Ohne Row Level Security wären die Policies wirkungslos; die Rolle dürfte alles anlegen und lesen."""
+    _disable_rls(conn, table)
+    error = _error(rw_database)
+    assert error.failed == (rls_off(table),)
+    assert rls_off(table) in str(error)
+
+
+def test_forcing_row_level_security_is_not_required(
+    conn: Any, rw_role: str, rw_database: Any
+) -> None:
+    """relforcerowsecurity betrifft nur den Eigentümer; die Schreibrolle ist keiner. Wächter gegen Verschärfung."""
+    from hoffmann_data import db
+
+    conn.execute("ALTER TABLE customers FORCE ROW LEVEL SECURITY")
+    assert db.verify_write_role(rw_database) is None
 
 
 @pytest.mark.parametrize("table", WRITE_TABLES)
@@ -398,16 +463,20 @@ def test_several_failures_are_all_reported_in_the_agreed_order(
     _grant(conn, "DELETE", "customers", rw_role)
     _grant(conn, "SELECT", "products", rw_role)
     _grant(conn, INSERT_RIGHT, "product_fits", rw_role)
-    _revoke(conn, "SELECT", "activities", rw_role)
+    _grant(conn, "SELECT", "activities", rw_role)
+    _revoke(conn, "SELECT", "contacts", rw_role)
     _revoke(conn, INSERT_RIGHT, "customers", rw_role)
+    _disable_rls(conn, "customers")
     _grant_create(conn, db_schema, rw_role)
     error = _error(rw_database)
     assert error.failed == (
+        rls_off("customers"),
         forbidden_write("DELETE", "customers"),
         forbidden_write("UPDATE", "contacts"),
+        foreign_read("activities"),
         foreign_read("products"),
         forbidden_write(INSERT_RIGHT, "product_fits"),
-        NO_SELECT["activities"],
+        NO_SELECT["contacts"],
         missing_right("customers"),
         CREATE_IN_SCHEMA,
     )
