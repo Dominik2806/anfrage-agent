@@ -18,8 +18,12 @@ neuen Kontakt (4.7) hat kein eigenes Werkzeug.
 1. **Eigene Schreibrolle.** Der Schreibweg verbindet sich als Rolle `data_service_rw` mit `INSERT` und `SELECT`
    auf `customers`, `contacts` und `activities`, ohne `UPDATE`, `DELETE`, `TRUNCATE`, `BYPASSRLS`, Superuser und
    `CREATE` (je eine `SELECT`- und eine `INSERT`-Policy, die `INSERT`-Policy mit `WITH CHECK`). Eine eigene
-   Startprüfung (`verify_write_role`) prüft genau diese Menge: Auf `customers`, `contacts` und `activities` lehnt sie jedes
-   weitere Recht ab, auf `products`, `product_fits` und `discount_rules` jedes Recht. Es gibt keinen Schalter. Die Meldungen der Prüfung
+   Startprüfung (`verify_write_role`) prüft: kein Superuser, kein `BYPASSRLS`, kein `CREATE` im Schema. Auf `customers`,
+   `contacts` und `activities` müssen `SELECT` und `INSERT` vorhanden sein; `UPDATE` (auch als Spaltenrecht), `DELETE` und
+   `TRUNCATE` werden abgelehnt. Auf `products`, `product_fits` und `discount_rules` werden `SELECT`, `INSERT` und `UPDATE`
+   (jeweils auch als Spaltenrecht), `DELETE` und `TRUNCATE` abgelehnt. `REFERENCES` und `TRIGGER` prüft sie nicht: Das
+   Rollenskript entzieht zuerst alles (`REVOKE ALL`) und vergibt nur `SELECT` und `INSERT`; die Prüfung fängt Rechte ab, die
+   über Mitgliedschaft oder `PUBLIC` dazukommen und das Schreiben ändern. Es gibt keinen Schalter. Die Meldungen der Prüfung
    stehen auf stderr mit dem Präfix `Schreibweg:` (Kurzbezeichnungen: `mcp-server/README.md`). ADR 0004
    bleibt unverändert gültig: Die Lese-Werkzeuge nutzen weiter nur `data_service_ro`. Verbindung, URL und Skript
    (`db/roles/data_service_rw.sql`) sind getrennt.
@@ -65,7 +69,7 @@ neuen Kontakt (4.7) hat kein eigenes Werkzeug.
    - **5b. Wiederholung nach verlorenem Rennen.** Verliert ein Aufruf ein Rennen, meldet die Datenbank `UniqueViolation`
      (SQLSTATE 23505), und `write_connection` macht daraus `DUPLICATE_ERROR`. `create_lead` wiederholt dann den **gesamten**
      Ablauf (Nachschlagen, Konfliktprüfung, INSERTs) genau **einmal** in einer neuen Transaktion; die Wiederholung findet den
-     Konkurrenten und gibt den bestehenden Kunden zurück. Eine zweite Niederlage gibt die feste Meldung weiter, nie eine
+     Konkurrenten und meldet den bestehenden Kunden über `customer_domain`. Eine zweite Niederlage gibt die feste Meldung weiter, nie eine
      Schleife. Andere Fehler (`DATABASE_ERROR`, `NOT_CONFIGURED`, `LEAD_CONFLICT`, Eingabefehler) werden nicht wiederholt. Jeder
      Fehlversuch schreibt genau eine Warnung ins Log (Klasse und SQLSTATE, nie Werte).
 6. **Prüfungen 2, 3 und 3b** (DATENMODELL Abschnitt 5) gelten im Werkzeug: Die Domain der Kontakt-Adresse entspricht der
@@ -129,10 +133,28 @@ neuen Kontakt (4.7) hat kein eigenes Werkzeug.
   einen zweiten Kunden an, gleicher Name ergibt den Konflikt-Fehler (Punkt 5, Fall a).
 - Identity-Spalten (`GENERATED ALWAYS AS IDENTITY`) brauchen kein eigenes Sequenzrecht: Die Tests mit Datenbank schreiben
   unter der Rolle `data_service_rw`, ohne dass sie eines hätte.
+- **Bekannte Grenzen (F08):**
+  - a) Eine Domain, die zu einem Bestandskunden passt, genügt, damit eine unbekannte Adresse als Kontakt eingetragen wird,
+    auch bei Status `existing`. Das ist kein Identitätsnachweis; `matched_by="email"` in `find_customer` ist für neu
+    eingetragene Kontakte kein Beleg für die Identität. Die Freigabe durch einen Mitarbeiter muss diese Ergänzung sichtbar
+    machen (F19 bis F21).
+  - b) `customer_created`, `contact_created` und `LEAD_CONFLICT` verraten dem Inhaber des Schreib-Tokens, ob Domain,
+    Firmenname oder Adresse bekannt sind. Die Trennung der Token muss tatsächlich gelten: Der Agent bekommt das Schreib-Token
+    nie.
+  - c) Gespeicherte Texte (`subject`, `summary`) kommen über `find_customer` wieder zum Agenten. Der Orchestrator (F13 ff.)
+    muss sie technisch als Daten rahmen; die Beschreibung der Werkzeuge allein genügt nicht.
+  - d) Die Pfadweiche vergleicht `scope["path"]` exakt (`hoffmann_data/switch.py`). Ein `root_path` (Betrieb hinter einem
+    Proxy mit Pfadpräfix) ist nicht vorgesehen.
+  - e) Schlägt `COMMIT` nach dem Senden fehl (zum Beispiel durch einen Verbindungsabbruch), kann der Eintrag schon bestehen,
+    obwohl `DATABASE_ERROR` gemeldet wird.
+  - f) Die Startprüfung prüft nicht, ob Row Level Security aktiv ist, und nicht den Wortlaut der Policies. Die Prüfung auf
+    RLS kommt mit Etappe 5b; den Wortlaut der Policies sichern die Rollentests (`test_role_script_rw.py`).
 - **Folgeänderungen (erledigt mit F08):** `mcp-server/CLAUDE.md` und `mcp-server/README.md`, die Platzhaltertests und
-  `db/roles/data_service_rw.sql`. Die Regeltests (`test_package_sql_rules.py`, `test_role_check.py`, `test_mcp_no_leak.py`,
-  `test_limits.py`) ändert nur der Mensch; sie lassen den Schreibweg und `INSERT` in `db.py` zu. Ein Test belegt, dass die
-  Weiche beide Lifespans startet.
+  `db/roles/data_service_rw.sql`. Von den vier Regeltests (`test_package_sql_rules.py`, `test_role_check.py`,
+  `test_mcp_no_leak.py`, `test_limits.py`, nur vom Menschen zu ändern) wurden zwei geändert: `test_package_sql_rules.py`
+  (Ausnahme für `INSERT INTO` auf drei Tabellen in `db.py`, Gegenproben) und `test_role_check.py` (die zwei Schreibvariablen in
+  der Liste der erlaubten `MCP_`-Variablen). `test_mcp_no_leak.py` und `test_limits.py` blieben unverändert; sie brauchten für
+  F08 keine Änderung. Ein Test belegt, dass die Weiche beide Lifespans startet.
 - **Offene Punkte:**
   - Freemail-Behandlung, erst wenn echte Domains zugelassen werden (heute lehnt die Datenbank alles außer `.example` ab).
   - `country` als Pflicht vom Freigabeweg und `industry` mit Standard `other` sind Annahmen (im Auftrag nicht geregelt,

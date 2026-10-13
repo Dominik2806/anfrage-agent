@@ -1,14 +1,18 @@
 """Datenbankzugriff des Datenservice hoffmann-data (F07).
 
 Nur dieses Modul importiert den Datenbanktreiber (psycopg); alle anderen Module bekommen die Verbindung
-von hier (Test: test_mcp_no_leak.py). Der Dienst liest nur (Auftrag 5.1):
-- Jeder Aufruf öffnet eine eigene Verbindung (kein Pool) und schließt sie am Ende. Es wird nie committet.
-- Die Verbindung ist schreibgeschützt (read_only) und hat ein Zeitlimit von 5 Sekunden je Abfrage.
-- prepare_threshold=None: keine serverseitig vorbereiteten Abfragen (Pooler im Transaktionsmodus).
-- Fehler der Datenbank werden auf eine feste Meldung abgebildet. Meldung, Log und Ausnahmekette enthalten
-  weder Host noch Benutzer noch Datenbankname noch URL noch den Text der Ausnahme.
-- Beim Start prüft verify_read_only_role, dass die Rolle der Verbindung wirklich nur lesen darf (Etappe 7).
-  Die Prüfung ist eine Momentaufnahme; die Rolle (db/roles/data_service_ro.sql) bleibt die eigentliche Sperre.
+von hier (Test: test_mcp_no_leak.py). Der Lesepfad liest nur, der Schreibpfad legt nur an (Auftrag 5.1, ADR 0005).
+Gemeinsam: Jeder Aufruf öffnet eine eigene Verbindung (kein Pool) und schließt sie am Ende, mit einem Zeitlimit von
+5 Sekunden je Abfrage und prepare_threshold=None (keine serverseitig vorbereiteten Abfragen, Pooler im
+Transaktionsmodus). Fehler der Datenbank werden auf eine feste Meldung abgebildet. Meldung, Log und Ausnahmekette
+enthalten weder Host noch Benutzer noch Datenbankname noch URL noch den Text der Ausnahme.
+- Lesepfad (Database, read_connection): Die Verbindung ist schreibgeschützt (read_only), es wird nie committet.
+- Schreibpfad (WriteDatabase, write_connection): Die Verbindung ist nicht schreibgeschützt. Eine Transaktion je
+  Aufruf: Commit am Ende, bei jeder Ausnahme Rollback, danach wird die Verbindung geschlossen. INSERT INTO steht nur
+  in diesem Modul.
+- Beim Start prüfen verify_read_only_role und verify_write_role, dass die Rolle der jeweiligen Verbindung wirklich nur
+  lesen beziehungsweise nur lesen und anlegen darf (Etappe 7, F08). Die Prüfungen sind eine Momentaufnahme; die Rollen
+  (db/roles/data_service_ro.sql, db/roles/data_service_rw.sql) bleiben die eigentliche Sperre.
 """
 
 import logging

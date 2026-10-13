@@ -126,6 +126,10 @@ Leerzeichen, gilt sie als nicht gesetzt (Standardwert). So bleibt eine kopierte 
 unschädlich. `MCP_SERVER_DATABASE_URL` hat keinen Standardwert: Leer gilt auch als nicht gesetzt, dann bricht der Start ab.
 Die beiden Schreibvariablen sind leer ebenfalls „nicht gesetzt“: Sind beide leer, gibt es keinen Schreibweg.
 
+Das Token muss mit einem Zufallsgenerator erzeugt werden (Befehl unten). Die Prüfung beim Start (mindestens 32 Zeichen,
+mindestens 10 verschiedene) ist nur eine Untergrenze und schützt nicht gegen schwache Token wie
+`0123456789abcdef0123456789abcdef`; sie gilt für das Lese- und das Schreib-Token.
+
 Token erzeugen:
 
 ```
@@ -218,14 +222,14 @@ die acht (ADR 0005).
   ungültig, nur ein fehlendes Feld heißt „kein Kontakt“. Die Reihenfolge der Prüfung ist die Reihenfolge der Parameter.
 - **`create_lead`, Dublettenschutz** (ADR 0005, Punkt 5): Die Domain des Kunden kommt aus der E-Mail-Adresse. Gesucht wird
   zuerst über die Domain, dann über den Firmennamen, ohne Beachtung der Schreibung, und über die Adresse. Ein Treffer über die
-  Domain liefert den bestehenden Kunden **unverändert** zurück (`customer_created: false`); ein Kontakt, den es noch nicht gibt,
+  Domain meldet den bestehenden Kunden **unverändert** über `customer_domain` (`customer_created: false`); ein Kontakt, den es noch nicht gibt,
   wird ergänzt (`contact_created: true`), ein vorhandener bleibt unverändert. Ein Treffer nur über den Firmennamen, Domain und
   Name auf verschiedenen Kunden oder eine Adresse, die einem anderen Kunden gehört, ist ein Konflikt: feste Meldung
   (`Der Lead steht in Konflikt mit bestehenden Daten …`), es wird nichts geschrieben, ein Mitarbeiter entscheidet.
   Unterdomains (`mail.firma.example`) werden nicht mit `firma.example` zusammengeführt. Die drei Nachschlagungen laufen in einer
   SQL-Anweisung (eine Momentaufnahme).
 - **Rennen:** Legen zwei Aufrufe gleichzeitig denselben neuen Kunden an, scheitert einer an der Eindeutigkeit der Datenbank. Er
-  wiederholt den ganzen Ablauf genau einmal in einer neuen Transaktion und liefert dann den bestehenden Kunden. Scheitert auch das,
+  wiederholt den ganzen Ablauf genau einmal in einer neuen Transaktion und meldet dann den bestehenden Kunden über `customer_domain`. Scheitert auch das,
   kommt die feste Meldung `Der Eintrag existiert bereits.`; andere Fehler werden nicht wiederholt.
 - **`log_activity`:** Der Kunde wird über die Domain gefunden; ein unbekannter Kunde ist ein fester Fehler, es wird nie ein Kunde
   angelegt. Ein Kunde mit Status `inactive` ist erlaubt. Eine Adresse wird nur bei diesem Kunden gesucht: „unbekannt“ und „gehört
