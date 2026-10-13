@@ -257,9 +257,12 @@ def verify_read_only_role(database: ConnectionSource) -> None:
 
 # Startprüfung der Schreibrolle (F08, ADR 0005)
 
-# Die Schreibrolle (db/roles/data_service_rw.sql) darf auf den ersten drei Tabellen genau lesen und anlegen,
-# auf den letzten drei nichts. Die Reihenfolge ist die der Abfrage und der Meldung tabelle-fehlt.
+# Die Schreibrolle (db/roles/data_service_rw.sql) darf auf customers und contacts lesen und anlegen, auf
+# activities nur anlegen (der Schreibweg liest sie nie) und auf den letzten drei Tabellen nichts. Die Reihenfolge
+# ist die der Abfrage und der Meldung tabelle-fehlt.
 WRITABLE_TABLES = ("customers", "contacts", "activities")
+SELECT_REQUIRED_TABLES = ("customers", "contacts")
+INSERT_ONLY_TABLES = ("activities",)
 FORBIDDEN_TABLES = ("products", "product_fits", "discount_rules")
 WRITE_CHECKED_TABLES = WRITABLE_TABLES + FORBIDDEN_TABLES
 # Unerlaubte Rechte: (Recht, Spalte aus WRITE_TABLES_SQL), in der Reihenfolge der Ausgabe. Auf den
@@ -296,7 +299,10 @@ WRITE_TABLES_SQL = """SELECT
     ) AS can_delete,
     COALESCE(
         has_table_privilege(current_user, to_regclass(t.table_name), %(priv_truncate)s::text), false
-    ) AS can_truncate
+    ) AS can_truncate,
+    COALESCE(
+        (SELECT c.relrowsecurity FROM pg_class c WHERE c.oid = to_regclass(t.table_name)), false
+    ) AS rls_enabled
 FROM unnest(%(tables)s::text[]) WITH ORDINALITY AS t(table_name, ord)
 ORDER BY t.ord"""
 
@@ -306,9 +312,11 @@ def _failed_write_checks(
 ) -> list[str]:
     """Die Kurzbezeichnungen der gescheiterten Prüfungen der Schreibrolle in fester Reihenfolge.
 
-    1 Superuser, 2 BYPASSRLS, 3 unerlaubte Rechte auf den Schreibtabellen, 4 jedes Recht auf den Fremdtabellen
-    (zuerst Lesen, dann Schreibrechte), 5 fehlendes SELECT, danach fehlendes INSERT auf den Schreibtabellen,
-    6 CREATE im Schema, 7 fehlende Tabellen. Eine fehlende Tabelle erscheint nur unter 7.
+    1 Superuser, 2 BYPASSRLS, 3 Row Level Security aus (rls-aus), 4 unerlaubte Rechte auf den Schreibtabellen
+    (je Tabelle in der Reihenfolge der Tabellen; auf activities zuerst jedes SELECT, dann UPDATE, DELETE, TRUNCATE),
+    5 jedes Recht auf den Fremdtabellen (zuerst Lesen, dann Schreibrechte), 6 fehlendes SELECT auf customers und
+    contacts, danach fehlendes INSERT auf den drei Schreibtabellen, 7 CREATE im Schema, 8 fehlende Tabellen. Eine
+    fehlende Tabelle erscheint nur unter 8.
     """
     role = role_rows[0]
     rows = {row["table_name"]: row for row in table_rows}
@@ -320,6 +328,11 @@ def _failed_write_checks(
     if role["rolbypassrls"]:
         failed.append(BYPASS_RLS_FAILURE)
     for row in writable:
+        if not row["rls_enabled"]:
+            failed.append(f"rls-aus:{row['table_name']}")
+    for row in writable:
+        if row["table_name"] in INSERT_ONLY_TABLES and row["any_select"]:
+            failed.append(f"lesen-unerlaubt:{row['table_name']}")
         for right, column in _EXTRA_WRITE_CHECKS:
             if row[column]:
                 failed.append(f"schreibrecht:{right}:{row['table_name']}")
@@ -330,7 +343,7 @@ def _failed_write_checks(
             if row[column]:
                 failed.append(f"schreibrecht:{right}:{row['table_name']}")
     for row in writable:
-        if not row["can_select"]:
+        if row["table_name"] in SELECT_REQUIRED_TABLES and not row["can_select"]:
             failed.append(NO_SELECT_FAILURES[row["table_name"]])
     for row in writable:
         if not row["can_insert"]:
@@ -346,10 +359,13 @@ def _failed_write_checks(
 def verify_write_role(database: ConnectionSource) -> None:
     """Prüft beim Start, dass die Rolle der Verbindung nur anlegen und lesen darf. Wirft RoleCheckError, sonst None.
 
-    Prüfungen: 1 kein Superuser, 2 kein BYPASSRLS, 3 auf customers, contacts, activities kein UPDATE, DELETE,
-    TRUNCATE (UPDATE auch nicht als Spaltenrecht), 4 auf products, product_fits, discount_rules gar kein Recht
-    (auch nicht als Spaltenrecht), 5 SELECT und INSERT auf den drei Schreibtabellen, 6 kein CREATE im aktuellen
-    Schema, 7 alle sechs Tabellen existieren. Geprüft werden nur Rechte, nicht die Bedingungen der Policies.
+    Prüfungen: 1 kein Superuser, 2 kein BYPASSRLS, 3 Row Level Security aktiv (relrowsecurity) auf customers,
+    contacts, activities; relforcerowsecurity betrifft nur den Eigentümer und wird nicht geprüft, 4 auf diesen
+    drei Tabellen kein UPDATE, DELETE, TRUNCATE (UPDATE auch nicht als Spaltenrecht), auf activities zusätzlich
+    kein SELECT (auch nicht als Spaltenrecht), 5 auf products, product_fits, discount_rules weder Tabellen- noch
+    Spaltenrecht (SELECT, INSERT, UPDATE) noch DELETE oder TRUNCATE, 6 SELECT und INSERT auf customers und
+    contacts sowie INSERT auf activities, 7 kein CREATE im aktuellen Schema, 8 alle sechs Tabellen existieren.
+    Geprüft werden Rechte und der RLS-Schalter, nicht der Wortlaut der Policies.
     Nur lesende Abfragen, genau eine Verbindung. Scheitert die Verbindung oder eine Abfrage, steht im Fehler nur
     die Kurzbezeichnung `datenbankfehler`; geloggt wird genau einmal Klasse und SQLSTATE.
     """

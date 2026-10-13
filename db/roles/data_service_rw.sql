@@ -1,8 +1,9 @@
 -- Schreibende Datenbankrolle des Datenservice hoffmann-data (F08, ADR 0005).
 -- Zweck: Der Schreibweg des Datenservice darf Leads, Kontakte und Aktivitäten anlegen, sonst nichts
 -- (Auftrag 5.1): nichts ändern, nichts löschen. Die Datenbank setzt das durch, auch wenn der Code einen
--- Fehler hat. Die Rolle hat SELECT und INSERT auf customers, contacts und activities, dazu je Tabelle eine
--- SELECT- und eine INSERT-Policy, weil Row Level Security ohne Policy keine Zeile durchlässt (schema.sql).
+-- Fehler hat. Die Rolle hat SELECT und INSERT auf customers und contacts, auf activities nur INSERT (der
+-- Schreibweg liest activities nie). Dazu kommt je Tabelle eine INSERT-Policy und auf customers und contacts eine
+-- SELECT-Policy, weil Row Level Security ohne Policy keine Zeile durchlässt (schema.sql).
 -- Kein BYPASSRLS, kein CREATE im Schema, keine Sequenzrechte (Identity-Spalten brauchen keine).
 -- Die INSERT-Policies sind streng und setzen ADR 0005 Punkt 7 in der Datenbank durch:
 --   customers:  nur status = 'lead'
@@ -52,8 +53,8 @@ BEGIN
 END
 $$;
 
--- Lesen und anlegen, nur diese drei Tabellen (je Recht eine eigene Anweisung)
-GRANT SELECT ON customers, contacts, activities TO data_service_rw;
+-- Lesen nur customers und contacts, anlegen alle drei Tabellen (je Recht eine eigene Anweisung)
+GRANT SELECT ON customers, contacts TO data_service_rw;
 GRANT INSERT ON customers, contacts, activities TO data_service_rw;
 
 -- customers: sehen darf die Rolle alles, anlegen nur Leads
@@ -70,9 +71,11 @@ CREATE POLICY rw_select ON contacts FOR SELECT TO data_service_rw USING (true);
 DROP POLICY IF EXISTS rw_insert ON contacts;
 CREATE POLICY rw_insert ON contacts FOR INSERT TO data_service_rw WITH CHECK (true);
 
--- activities: anlegen nur als Agent, nur Anfrage, Reklamation oder Notiz, ohne Artikelbezug
+-- activities: nur anlegen, nie lesen. Die folgende Zeile räumt den Stand vor der Härtung nach den F08-Reviews auf,
+-- in dem es noch eine SELECT-Policy gab; eine neue entsteht nicht.
 DROP POLICY IF EXISTS rw_select ON activities;
-CREATE POLICY rw_select ON activities FOR SELECT TO data_service_rw USING (true);
+
+-- Anlegen nur als Agent, nur Anfrage, Reklamation oder Notiz, ohne Artikelbezug
 
 DROP POLICY IF EXISTS rw_insert ON activities;
 CREATE POLICY rw_insert ON activities FOR INSERT TO data_service_rw
