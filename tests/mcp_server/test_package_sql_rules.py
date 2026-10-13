@@ -409,3 +409,115 @@ def test_package_contains_select_statements_the_rules_apply_to() -> None:
         if re.search(r"\bSELECT\b", text, re.IGNORECASE)
     ]
     assert selects, "kein SELECT im Paket: Die Lese-Werkzeuge fehlen noch"
+
+
+# Gegenprobe zu den INSERT-Regeln (F08): Der Scanner findet in db.py wirklich die drei Anweisungen, für die die
+# Ausnahme gedacht ist. Ohne sie wären die Regeln oben grün, auch wenn der Scanner db.py nicht sähe.
+INSERT_ANYWHERE = re.compile(r"\bINSERT\s+INTO\b", re.IGNORECASE)
+INSERT_START = re.compile(r'^\s*INSERT\s+INTO\s+([\w."]+)', re.IGNORECASE)
+# Fest im Test: Eine vierte Schreibanweisung (zum Beispiel mit F19) muss der Mensch hier bewusst eintragen.
+EXPECTED_INSERT_CONSTANTS = {
+    "INSERT_ACTIVITY_SQL": "activities",
+    "INSERT_CUSTOMER_SQL": "customers",
+    "INSERT_CONTACT_SQL": "contacts",
+}
+
+
+def _insert_texts(source: str) -> list[str]:
+    """Alle Zeichenketten mit INSERT INTO irgendwo im Text, auf dem Weg der Regeln (string_constants)."""
+    return [t for t in string_constants(ast.parse(source)) if INSERT_ANYWHERE.search(t)]
+
+
+def _insert_constants(source: str) -> dict[str, str]:
+    """Zweiter Weg: modulweite Zuweisungen NAME = "INSERT INTO <Tabelle> ..." (Name -> Tabelle, klein)."""
+    found: dict[str, str] = {}
+    for node in ast.parse(source).body:
+        if (
+            isinstance(node, ast.Assign)
+            and isinstance(node.value, ast.Constant)
+            and isinstance(node.value.value, str)
+            and (match := INSERT_START.match(node.value.value))
+        ):
+            for target in node.targets:
+                if isinstance(target, ast.Name):
+                    found[target.id] = match.group(1).lower()
+    return found
+
+
+def test_db_module_contains_the_insert_statements_the_rules_apply_to() -> None:
+    """Gegenprobe: Der Scanner findet in db.py genau die drei INSERT-Anweisungen, sonst wären die Regeln wirkungslos."""
+    assert DB_MODULE in _sources(), "db.py wird vom Scanner nicht erfasst"
+    source = DB_MODULE.read_text(encoding="utf-8")
+    texts = _insert_texts(source)
+    # Jede Zeichenkette mit INSERT INTO beginnt auch damit (kein CTE, kein Text davor) und nennt ihre Tabelle
+    matches = [INSERT_START.match(text) for text in texts]
+    assert all(matches), f"INSERT INTO steht nicht am Anfang der Zeichenkette: {texts}"
+    targets = sorted(m.group(1).lower() for m in matches if m)
+    assert targets == ["activities", "contacts", "customers"], (
+        f"Zieltabellen oder Zahl weichen ab: {targets}"
+    )
+    # Zweiter, unabhängiger Weg: dieselben drei als benannte Konstanten
+    assert _insert_constants(source) == EXPECTED_INSERT_CONSTANTS
+    # Die Ausnahme der Regeln greift genau diese drei: Ohne sie meldet derselbe Weg dreimal INSERT, mit ihr nichts
+    assert (
+        forbidden_words(source, allow_privilege_names=True, allow_insert_into=False)
+        == ["INSERT"] * 3
+    )
+    assert forbidden_words(source, allow_privilege_names=True, allow_insert_into=True) == []
+    # In keinem anderen Modul steht eine INSERT-Anweisung (derselbe Sammelweg)
+    others = {
+        str(path.relative_to(PACKAGE)): found
+        for path in _sources()
+        if path != DB_MODULE and (found := _insert_texts(path.read_text(encoding="utf-8")))
+    }
+    assert not others, f"INSERT INTO außerhalb von db.py: {others}"
+
+
+VIOLATIONS_FOR_DB_MODULE = [
+    pytest.param(
+        '\nBAD = "WITH x AS (SELECT 1) INSERT INTO customers (company_name) VALUES (%(n)s)"\n',
+        "keywords",
+        id="cte",
+    ),
+    pytest.param(
+        '\nBAD = "INSERT INTO customers (a) VALUES (1); INSERT INTO contacts (a) VALUES (1)"\n',
+        "keywords",
+        id="zwei-inserts-in-einer-zeichenkette",
+    ),
+    pytest.param('\nBAD = "UPDATE customers SET a = 1"\n', "keywords", id="update"),
+    pytest.param('\nBAD = "DELETE FROM customers"\n', "keywords", id="delete"),
+    pytest.param(
+        "\nBAD = f\"INSERT INTO customers (company_name) VALUES ('{value}')\"\n",
+        "formatting",
+        id="f-string",
+    ),
+    pytest.param(
+        '\nBAD = "INSERT INTO customers (a) VALUES (\'" + value + "\')"\n', "formatting", id="plus"
+    ),
+    pytest.param(
+        "\nBAD = \"INSERT INTO customers (a) VALUES ('%s')\" % value\n", "formatting", id="prozent"
+    ),
+    pytest.param(
+        "\nBAD = \"INSERT INTO customers (a) VALUES ('{}')\".format(value)\n",
+        "formatting",
+        id="format",
+    ),
+]
+
+
+@pytest.mark.parametrize(("addition", "rule"), VIOLATIONS_FOR_DB_MODULE)
+def test_the_package_rules_flag_a_violation_added_to_the_real_db_module(
+    addition: str, rule: str
+) -> None:
+    """Gegenprobe: Derselbe Prüfaufruf wie im Paket-Test schlägt an, wenn db.py einen Verstoß enthielte."""
+    source = DB_MODULE.read_text(encoding="utf-8")
+
+    def check(text: str) -> list[str]:
+        if rule == "keywords":
+            return forbidden_words(text, allow_privilege_names=True, allow_insert_into=True)
+        return unsafe_formatting(text)
+
+    assert check(source) == [], (
+        "db.py ist schon ohne Zusatz auffällig: Der Verstoß wäre nicht der Auslöser"
+    )
+    assert check(source + addition) != [], "die Regel erkennt den Verstoß nicht"
