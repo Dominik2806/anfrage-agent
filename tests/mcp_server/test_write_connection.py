@@ -423,6 +423,25 @@ def test_rollback_on_any_error_in_the_block(
     assert fake_connect.connections[0].events == ["execute", "rollback", "close"]
 
 
+def test_a_keyboard_interrupt_in_the_block_is_rolled_back_and_passed_on(
+    fake_connect: FakeConnect,
+) -> None:
+    """Auch ein Abbruch durch den Benutzer (BaseException, keine Exception) rollt zurück, schließt und
+    läuft unverändert nach außen."""
+    from hoffmann_data.db import WriteDatabase
+
+    original = KeyboardInterrupt()
+    with pytest.raises(KeyboardInterrupt) as info:
+        with WriteDatabase(GOOD_WRITE_URL).connection():
+            raise original
+    assert info.value is original
+    connection = fake_connect.connections[0]
+    assert connection.events == ["execute", "rollback", "close"], (
+        "kein Commit, erst Rollback, dann Schließen"
+    )
+    assert connection.closed
+
+
 def test_an_error_on_commit_rolls_back_and_closes(fake_connect: FakeConnect) -> None:
     from hoffmann_data.db import WriteDatabase
 
@@ -507,6 +526,23 @@ def test_write_connection_rolls_back_before_it_maps_a_duplicate(fake_connect: Fa
     assert fake_connect.connections[0].events == ["execute", "rollback", "close"]
 
 
+def test_write_connection_does_not_map_a_keyboard_interrupt(
+    fake_connect: FakeConnect, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Ein KeyboardInterrupt ist kein Datenbankfehler: kein ToolError (weder DATABASE_ERROR noch DUPLICATE_ERROR),
+    kein Log."""
+    from hoffmann_data import db
+
+    caplog.set_level(logging.DEBUG)
+    original = KeyboardInterrupt()
+    with pytest.raises(KeyboardInterrupt) as info:
+        with db.write_connection(db.WriteDatabase(GOOD_WRITE_URL)):
+            raise original
+    assert info.value is original
+    assert fake_connect.connections[0].events == ["execute", "rollback", "close"]
+    assert _db_records(caplog) == []
+
+
 def test_unreachable_database_gives_the_fixed_error_and_leaks_nothing(
     caplog: pytest.LogCaptureFixture, capsys: pytest.CaptureFixture[str]
 ) -> None:
@@ -552,6 +588,20 @@ def test_rollback_on_an_error_in_the_block(
         with real_write_database.connection() as connection:
             _insert(connection, row)
             raise RuntimeError("Abbruch im Block")
+    assert committed_customers(row["domain"]) == 0
+    assert connection.closed
+
+
+def test_a_keyboard_interrupt_stores_nothing_in_the_real_database(
+    real_write_database: Any, marker_cleanup: None, committed_customers: Callable[[str], int]
+) -> None:
+    """Ergänzung zu den Tests mit der Fake-Verbindung: Nichts wird committet. Den Rollback selbst belegen jene Tests;
+    der Server würde eine offene Transaktion beim Schließen ohnehin zurückrollen."""
+    row = marker_row()
+    with pytest.raises(KeyboardInterrupt):
+        with real_write_database.connection() as connection:
+            _insert(connection, row)
+            raise KeyboardInterrupt
     assert committed_customers(row["domain"]) == 0
     assert connection.closed
 

@@ -532,7 +532,9 @@ def test_the_timestamps_come_from_the_database(env: Env, db_clock: Any) -> None:
 
 
 def test_the_inserts_send_no_client_time_and_no_status(env: Env) -> None:
-    """created_at kommt aus dem Standardwert (oder now()) der Datenbank; der Status steht fest als 'lead' im Text."""
+    """created_at von Kunde und Kontakt kommt aus dem DEFAULT der Datenbank: Keiner der beiden INSERTs nennt die Spalte,
+    und keiner schickt einen Zeitwert; der Status steht fest als 'lead' im Text.
+    (occurred_at der Aktivität: test_log_activity.py)"""
     row = marker_row()
     recorder = StatementRecorder(env.role)
     _call(recorder, _args(row))
@@ -541,7 +543,9 @@ def test_the_inserts_send_no_client_time_and_no_status(env: Env) -> None:
     for text, params in inserts:
         values = list(params.values()) if isinstance(params, dict) else list(params or ())
         assert not [v for v in values if isinstance(v, date | float)], values
-        assert "created_at" not in text.lower() or "now()" in text.lower()
+        assert "created_at" not in text.lower(), (
+            "created_at setzt die Datenbank (DEFAULT now()), nie der Aufruf"
+        )
         assert "lead" not in values, "der Status ist nicht vom Aufrufer änderbar"
     customer_insert = next(
         text for text, _ in inserts if _head(text).startswith("INSERT INTO CUSTOMERS")
