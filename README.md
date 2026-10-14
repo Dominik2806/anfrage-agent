@@ -1,5 +1,10 @@
 # Anfrage-Agent
 
+> **Stand 14.10.2026: Die Entwicklung ist vorerst pausiert, ein Termin zur Wiederaufnahme steht nicht fest.**
+> Fertig ist der Datenservice „hoffmann-data“ mit Lese- und Schreibwerkzeugen, Resources, Prompt und
+> Fortschrittsmeldungen (bis einschließlich F10). Noch nicht gebaut ist der Agenten-Kern (F11 ff.).
+> Die offenen Punkte stehen in den GitHub-Issues, insbesondere im Sammel-Issue zu F10.
+
 > **Hinweis: fiktives Projekt.** Dies ist ein Portfolio-Projekt. Die Hoffmann Maschinenbau GmbH,
 > der Auftrag, alle Kunden, Kontakte, Artikel, Preise und Kundenanfragen sind frei erfunden.
 > Übereinstimmungen mit realen Firmen oder Personen sind zufällig. Alle E-Mail-Adressen und Domains
