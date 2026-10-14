@@ -18,7 +18,7 @@ KI-Agent zur Vorbearbeitung von Kundenanfragen für die Hoffmann Maschinenbau Gm
 Er klassifiziert Anfragen, recherchiert in Katalog und CRM und erstellt
 Antwortentwürfe, die ein Mensch freigibt.
 
-**Status:** in Entwicklung, Meilenstein M0
+**Status:** Entwicklung vorerst pausiert, Meilenstein M1, Features bis einschließlich F10
 
 ## Datenbank befüllen
 Voraussetzung: Python 3.13 und `pip install -r requirements-dev.txt`.
