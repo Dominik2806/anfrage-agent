@@ -4,3 +4,4 @@ uvicorn==0.54.0
 mcp-types==2.3.0
 pydantic==2.13.5
 psycopg[binary]==3.3.6
+anyio==4.15.1

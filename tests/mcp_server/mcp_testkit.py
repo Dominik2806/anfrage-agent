@@ -10,7 +10,7 @@ import sys
 from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Any
+from typing import Any, Self
 
 ROOT = Path(__file__).resolve().parents[2]
 MCP_SERVER_DIR = ROOT / "mcp-server"
@@ -576,3 +576,582 @@ def result_of(response: Any) -> dict[str, Any]:
     """`result` einer JSON-RPC-Antwort mit HTTP 200 (auch bei isError); bricht bei anderem Status ab."""
     assert response.status_code == 200, response.text
     return parse_rpc_body(response)["result"]
+
+
+# Hilfen fuer F10 (Fortschrittsmeldungen): Ereignisparser, Probe-App, ASGI-Treiber, Loopback-Server.
+
+MODERN_VERSION = "2026-07-28"
+
+
+def parse_sse_events(text: str) -> list[dict[str, Any]]:
+    """Alle data:-Ereignisse eines Ereignisstroms als JSON, in der Reihenfolge des Stroms (Kommentarzeilen wie ': ping' zaehlen nicht).
+
+    Zeilen enden nur an \\r\\n, \\n und \\r (SSE-Spezifikation), nicht an anderen Zeichen wie U+2028, U+2029 oder U+0085, die str.splitlines()
+    ebenfalls trennt; solche Zeichen koennen in einem Token stehen.
+    """
+    return [
+        json.loads(line[len("data:") :].strip(" "))
+        for line in re.split(r"\r\n|\n|\r", text)
+        if line.startswith("data:")
+    ]
+
+
+def sse_progress_event_sizes(content: bytes) -> list[int]:
+    """Rohe Groesse (Bytes, Rahmen und Endzeile eingeschlossen) jedes SSE-Ereignisses, das eine Fortschrittsmeldung traegt.
+
+    Ereignisse enden an einer Leerzeile (\\r\\n\\r\\n, \\n\\n oder \\r\\r), wie in der SSE-Spezifikation.
+    """
+    return [
+        len(match.group(0))
+        for match in re.finditer(rb"(.*?)(\r\n\r\n|\n\n|\r\r)", content, re.DOTALL)
+        if b"notifications/progress" in match.group(1)
+    ]
+
+
+def modern_tool_call(
+    tool: str, arguments: dict[str, Any] | None = None, progress_token: Any = None
+) -> tuple[dict[str, Any], dict[str, str]]:
+    """(JSON-RPC-Nutzlast, Kopfzeilen) eines tools/call auf dem modernen Weg (Header MCP-Protocol-Version = 2026-07-28).
+
+    Der moderne Weg verlangt die Umschlagfelder in params._meta und passende Kopfzeilen (Mcp-Method, Mcp-Name).
+    """
+    from mcp_types import CLIENT_CAPABILITIES_META_KEY, PROTOCOL_VERSION_META_KEY
+
+    meta: dict[str, Any] = {
+        PROTOCOL_VERSION_META_KEY: MODERN_VERSION,
+        CLIENT_CAPABILITIES_META_KEY: {},
+    }
+    if progress_token is not None:
+        meta["progressToken"] = progress_token
+    payload = {
+        "jsonrpc": "2.0",
+        "id": 7,
+        "method": "tools/call",
+        "params": {"name": tool, "arguments": arguments or {}, "_meta": meta},
+    }
+    headers = {
+        **RPC_HEADERS,
+        "MCP-Protocol-Version": MODERN_VERSION,
+        "Mcp-Method": "tools/call",
+        "Mcp-Name": tool,
+    }
+    return payload, headers
+
+
+def probe_app(tool: Any, name: str = "probe_progress", server_name: str = "beleg") -> Any:
+    """Eine SDK-App (zustandslos, Streaming, Host-Schutz fuer Loopback) mit genau einem Werkzeug des Tests, ohne Paketcode.
+
+    `tool` ist eine Funktion mit Parameter `ctx: Context` (die Annotation muss ein echtes Objekt sein, kein Text).
+    """
+    from mcp.server.mcpserver import MCPServer
+    from mcp.server.transport_security import TransportSecuritySettings
+
+    server = MCPServer(server_name)
+    server.tool(name=name)(tool)
+    return server.streamable_http_app(
+        streamable_http_path=MCP_PATH,
+        json_response=False,
+        stateless_http=True,
+        transport_security=TransportSecuritySettings(
+            enable_dns_rebinding_protection=True,
+            allowed_hosts=["127.0.0.1:*"],
+            allowed_origins=["http://127.0.0.1:*"],
+        ),
+        host="127.0.0.1",
+    )
+
+
+class AsgiResponse:
+    """Die Antwort eines AsgiRunner.post: alle gesendeten ASGI-Nachrichten in der Reihenfolge des Sendens."""
+
+    def __init__(self) -> None:
+        self.messages: list[dict[str, Any]] = []
+
+    @property
+    def status(self) -> int:
+        start = [m for m in self.messages if m["type"] == "http.response.start"]
+        assert start, "keine Antwort begonnen"
+        return int(start[0]["status"])
+
+    @property
+    def chunks(self) -> list[bytes]:
+        return [m.get("body", b"") for m in self.messages if m["type"] == "http.response.body"]
+
+    @property
+    def text(self) -> str:
+        return b"".join(self.chunks).decode("utf-8")
+
+
+class AsgiRunner:
+    """Treibt eine ASGI-App ohne Port: Lifespan laeuft als Aufgabe, jeder Aufruf von `post` ist eine Anfrage.
+
+    Nur in einer laufenden asyncio-Schleife benutzen (asyncio.run). `post` ruft fuer jede gesendete Nachricht erst
+    die Aufzeichnung und dann `on_send` auf; `on_send` darf warten und so einen Client nachbilden, der nicht liest.
+    Nach dem Antwortende meldet `receive` die Trennung (http.disconnect), wie ein Server es tut.
+    """
+
+    def __init__(self, app: Any) -> None:
+        self._app = app
+        self._state: dict[str, Any] = {}
+
+    async def __aenter__(self) -> Self:
+        import asyncio
+
+        self._inbox: asyncio.Queue[dict[str, Any]] = asyncio.Queue()
+        self._started = asyncio.Event()
+        self._stopped = asyncio.Event()
+        self._failed: list[dict[str, Any]] = []
+
+        async def send(message: dict[str, Any]) -> None:
+            kind = message["type"]
+            if kind == "lifespan.startup.complete":
+                self._started.set()
+            elif kind == "lifespan.shutdown.complete":
+                self._stopped.set()
+            elif kind.endswith(".failed"):
+                self._failed.append(message)
+                self._started.set()
+                self._stopped.set()
+
+        scope = {"type": "lifespan", "asgi": {"version": "3.0"}, "state": self._state}
+        self._task = asyncio.create_task(self._app(scope, self._inbox.get, send))
+        await self._inbox.put({"type": "lifespan.startup"})
+        await asyncio.wait_for(self._started.wait(), timeout=10)
+        assert not self._failed, "Lifespan-Start gescheitert"
+        return self
+
+    async def __aexit__(self, *exc_info: object) -> None:
+        import asyncio
+
+        await self._inbox.put({"type": "lifespan.shutdown"})
+        await asyncio.wait_for(self._stopped.wait(), timeout=10)
+        await asyncio.wait_for(self._task, timeout=10)
+
+    async def post(
+        self,
+        path: str,
+        payload: dict[str, Any],
+        headers: dict[str, str],
+        *,
+        on_send: Any = None,
+        disconnect: Any = None,
+    ) -> AsgiResponse:
+        """Eine POST-Anfrage; `disconnect` (asyncio.Event) laesst den Client mitten im Aufruf gehen (http.disconnect)."""
+        import asyncio
+
+        body = json.dumps(payload).encode("ascii")
+        raw_headers = [
+            (b"host", b"127.0.0.1:8000"),
+            (b"content-length", str(len(body)).encode("ascii")),
+            *((k.lower().encode("latin-1"), v.encode("latin-1")) for k, v in headers.items()),
+        ]
+        scope = {
+            "type": "http",
+            "asgi": {"version": "3.0"},
+            "http_version": "1.1",
+            "method": "POST",
+            "scheme": "http",
+            "path": path,
+            "raw_path": path.encode("ascii"),
+            "query_string": b"",
+            "root_path": "",
+            "headers": raw_headers,
+            "client": ("127.0.0.1", 50000),
+            "server": ("127.0.0.1", 8000),
+            "state": self._state,
+        }
+        response = AsgiResponse()
+        delivered = False
+        finished = asyncio.Event()
+
+        async def receive() -> dict[str, Any]:
+            nonlocal delivered
+            if not delivered:
+                delivered = True
+                return {"type": "http.request", "body": body, "more_body": False}
+            waiting = [asyncio.ensure_future(finished.wait())]
+            if disconnect is not None:
+                waiting.append(asyncio.ensure_future(disconnect.wait()))
+            _, pending = await asyncio.wait(waiting, return_when=asyncio.FIRST_COMPLETED)
+            for task in pending:
+                task.cancel()
+            return {"type": "http.disconnect"}
+
+        async def send(message: dict[str, Any]) -> None:
+            response.messages.append(message)
+            if on_send is not None:
+                await on_send(message)
+            if message["type"] == "http.response.body" and not message.get("more_body", False):
+                finished.set()
+
+        try:
+            await self._app(scope, receive, send)
+        finally:
+            finished.set()
+        return response
+
+
+class SocketsUnavailable(OSError):
+    """Die Umgebung erlaubt keinen Socket auf 127.0.0.1 (Test wird lokal uebersprungen, in GitHub Actions ist es ein Fehler)."""
+
+
+def _run_server_on_selector_loop(server: Any, sock: Any) -> None:
+    """Fuehrt `server` (uvicorn.Server) mit einer SelectorEventLoop aus, nicht mit der Standardschleife von uvicorn.
+
+    Grund (belegt in F10, Diagnose von serve_on_loopback): Unter Windows ist die Standardschleife die ProactorEventLoop.
+    Ihr `_call_connection_lost` ruft `sock.shutdown()` in einem `finally` auf; scheitert es mit ConnectionResetError
+    (der Client hat die Verbindung zurueckgesetzt), bleiben `sock.close()` und `Server._detach` aus, der asyncio.Server
+    zaehlt die Verbindung weiter, und `Server.wait_closed()` (uvicorn.Server.shutdown) wartet ohne Ende, noch vor dem
+    Lifespan-Ende. uvicorn selbst setzt dasselbe wie `Server.run` ein (asyncio.Runner mit loop_factory); Signale braucht der
+    Thread nicht (capture_signals tut ausserhalb des Hauptthreads nichts). Auf Linux ist die Selector-Schleife ohnehin Standard.
+    """
+    import asyncio
+
+    with asyncio.Runner(loop_factory=asyncio.SelectorEventLoop) as runner:
+        runner.run(server.serve(sockets=[sock]))
+
+
+def _shutdown_report(server: Any, loop_holder: list[Any], elapsed: float) -> str:
+    """Kompakter Bericht eines haengenden Herunterfahrens: verstrichene Zeit, Namen offener Tasks, uvicorn-Zaehler.
+
+    Liest von einem anderen Thread aus (Momentaufnahme); jeder Teil faengt seine eigenen Fehler ab, damit der Bericht nie
+    die eigentliche Meldung verdeckt. Enthaelt nur Namen und Zaehler, keine Werte.
+    """
+    import asyncio
+
+    lines = [f"Herunterfahren haengt nach {elapsed:.1f} s"]
+    try:
+        loop = loop_holder[0] if loop_holder else None
+        tasks = list(asyncio.all_tasks(loop)) if loop is not None else []
+        lines.append(f"Offene asyncio-Tasks ({len(tasks)}): {[task.get_name() for task in tasks]}")
+    except Exception as error:  # noqa: BLE001 - Diagnose darf nie die Meldung verdecken
+        lines.append(f"Tasks nicht lesbar: {type(error).__name__}")
+    try:
+        state = server.server_state
+        lines.append(
+            f"uvicorn: Verbindungen={len(state.connections)} Tasks={len(state.tasks)} "
+            f"should_exit={server.should_exit} force_exit={server.force_exit}"
+        )
+    except Exception as error:  # noqa: BLE001
+        lines.append(f"uvicorn-Zustand nicht lesbar: {type(error).__name__}")
+    return "\n".join(lines)
+
+
+@contextmanager
+def serve_on_loopback(app: Any) -> Iterator[str]:
+    """Startet `app` mit uvicorn in einem Thread auf 127.0.0.1 (Port 0, Socket vorab gebunden) und gibt die Basis-URL zurueck.
+
+    Ereignisbasiert: Der Start wird ueber das Lifespan-Ereignis `startup.complete` gemeldet, nicht ueber Schlafzeiten.
+    Jede Wartezeit hat ein hartes Zeitlimit. Das Ende (auch bei einem Fehler im Test) setzt `should_exit`, wartet auf den
+    Thread und erzwingt danach das Ende. Wirft SocketsUnavailable, wenn der Socket nicht gebunden werden kann.
+
+    Die Testhilfe laeuft bewusst auf der SelectorEventLoop (siehe `_run_server_on_selector_loop`). Belegte Ursache eines
+    frueheren Hangs beim Beenden (F10, nur Windows, ca. 25 % der Laeufe, 15,8 s): Die ProactorEventLoop ruft in
+    `_call_connection_lost` `sock.shutdown()` im `finally` auf; ein ConnectionResetError ueberspringt `sock.close()` und
+    `Server._detach`, der asyncio.Server zaehlt die Verbindung weiter, `Server.wait_closed()` haengt in
+    `uvicorn.Server.shutdown` und `lifespan.shutdown` wird nie gesendet. `force_exit` hilft nicht (es betrifft
+    `wait_closed` nicht). Haengt das Beenden trotzdem, nennt die Assertion die verstrichene Zeit, die Namen offener Tasks
+    und die uvicorn-Zaehler.
+    """
+    import socket
+    import threading
+
+    import uvicorn
+
+    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    try:
+        sock.bind(("127.0.0.1", 0))
+    except OSError:
+        sock.close()
+        raise SocketsUnavailable("Kein Socket auf 127.0.0.1 moeglich.") from None
+    port = sock.getsockname()[1]
+    started = threading.Event()
+    outcome: list[str] = []
+    loop_holder: list[Any] = []
+
+    class Watched:
+        async def __call__(self, scope: Any, receive: Any, send: Any) -> None:
+            if scope["type"] != "lifespan":
+                await app(scope, receive, send)
+                return
+            import asyncio
+
+            loop_holder.append(asyncio.get_running_loop())  # laeuft im Server-Thread
+
+            async def watching(message: dict[str, Any]) -> None:
+                if message["type"] in ("lifespan.startup.complete", "lifespan.startup.failed"):
+                    outcome.append(message["type"])
+                    started.set()
+                await send(message)
+
+            await app(scope, receive, watching)
+
+    config = uvicorn.Config(Watched(), log_level="warning", access_log=False, lifespan="on")
+    server = uvicorn.Server(config)
+    thread = threading.Thread(target=_run_server_on_selector_loop, args=(server, sock), daemon=True)
+    thread.start()
+    try:
+        if not started.wait(timeout=10) or outcome != ["lifespan.startup.complete"]:
+            raise RuntimeError("Der Loopback-Server ist nicht gestartet.")
+        yield f"http://127.0.0.1:{port}"
+    finally:
+        import time
+        import warnings
+
+        server.should_exit = True
+        began = time.monotonic()
+        reports: list[str] = []
+        # Erste Frist 3 s: Dauert das Beenden laenger, wird der Zustand sofort festgehalten (vor force_exit).
+        thread.join(timeout=3)
+        if thread.is_alive():
+            reports.append(_shutdown_report(server, loop_holder, time.monotonic() - began))
+            thread.join(timeout=7)
+        if thread.is_alive():
+            server.force_exit = True
+            thread.join(timeout=5)
+        sock.close()
+        elapsed = time.monotonic() - began
+        if reports and not thread.is_alive():
+            warnings.warn(
+                f"Der Loopback-Server brauchte {elapsed:.1f} s zum Beenden.\n" + "\n".join(reports),
+                RuntimeWarning,
+                stacklevel=2,
+            )
+        assert not thread.is_alive(), (
+            f"Der Loopback-Server wurde nicht beendet ({elapsed:.1f} s).\n" + "\n".join(reports)
+        )
+
+
+def serve_or_skip(stack: Any, app: Any) -> str:
+    """Startet `app` auf Loopback (im ExitStack `stack`) und gibt die Basis-URL zurueck.
+
+    Erlaubt die Umgebung keinen Socket, wird der Test lokal uebersprungen; in GitHub Actions ist das ein Fehler (Muster wie
+    TEST_DATABASE_URL), damit die Pipeline nie gruen ist, ohne dass die Port-Tests liefen.
+    """
+    import os
+
+    import pytest
+
+    unavailable = False
+    try:
+        base = stack.enter_context(serve_on_loopback(app))
+    except SocketsUnavailable:
+        unavailable = True
+    if unavailable:
+        if os.environ.get("GITHUB_ACTIONS") == "true":
+            pytest.fail(
+                "Kein Socket auf 127.0.0.1 in GitHub Actions: Die Port-Tests duerfen dort nicht uebersprungen werden.",
+                pytrace=False,
+            )
+        pytest.skip("Kein Socket auf 127.0.0.1 moeglich: Port-Tests werden uebersprungen.")
+    return str(base)
+
+
+# Hilfen fuer die Tests der Fortschrittsmeldungen mit den echten Werkzeugen (F10): Datenbank-Doubles mit Zeitleiste.
+
+
+class _ScriptedCursor:
+    def __init__(self, owner: "ScriptedDatabase") -> None:
+        self._owner = owner
+        self._rows: list[dict[str, Any]] = []
+
+    def __enter__(self) -> Self:
+        return self
+
+    def __exit__(self, *exc_info: object) -> None:
+        return None
+
+    def execute(self, query: Any, params: Any = None, **kwargs: Any) -> Self:
+        self._rows = self._owner.run(str(query), params)
+        return self
+
+    def fetchall(self) -> list[dict[str, Any]]:
+        return list(self._rows)
+
+    def fetchone(self) -> dict[str, Any] | None:
+        return self._rows[0] if self._rows else None
+
+
+class _ScriptedConnection:
+    def __init__(self, owner: "ScriptedDatabase") -> None:
+        self._owner = owner
+
+    def cursor(self, *args: Any, **kwargs: Any) -> _ScriptedCursor:
+        return _ScriptedCursor(self._owner)
+
+    def execute(self, query: Any, params: Any = None, **kwargs: Any) -> _ScriptedCursor:
+        return _ScriptedCursor(self._owner).execute(query, params)
+
+
+class ScriptedDatabase:
+    """ConnectionSource ohne Datenbank: `handler(text, params)` liefert die Zeilen, `timeline` haelt die Ereignisse fest.
+
+    Zeitleiste (Texte): "open" (Verbindung geoeffnet), "sql:SELECT" / "sql:INSERT" (je Befehl, erstes Wort), und am Ende
+    des Blocks "commit" (write=True) oder "close" (write=False), bei einer Ausnahme "rollback". `before_statement(text)`
+    laeuft vor jedem Befehl (darf warten oder werfen; ein Befehl, vor dem es wirft, steht nicht in der Zeitleiste).
+    `on_end(kind)` laeuft am Ende mit "commit", "close" oder "rollback".
+    """
+
+    def __init__(
+        self,
+        handler: Any,
+        timeline: list[str],
+        *,
+        write: bool = False,
+        before_statement: Any = None,
+        on_end: Any = None,
+    ) -> None:
+        self._handler = handler
+        self.timeline = timeline
+        self._write = write
+        self._before = before_statement
+        self._on_end = on_end
+
+    def run(self, text: str, params: Any) -> list[dict[str, Any]]:
+        if self._before is not None:
+            self._before(text)
+        self.timeline.append(f"sql:{text.split()[0].upper()}")
+        rows = self._handler(text, params)
+        return [] if rows is None else rows
+
+    @contextmanager
+    def connection(self) -> Iterator[_ScriptedConnection]:
+        self.timeline.append("open")
+        try:
+            yield _ScriptedConnection(self)
+        except BaseException:
+            self.timeline.append("rollback")
+            if self._on_end is not None:
+                self._on_end("rollback")
+            raise
+        kind = "commit" if self._write else "close"
+        self.timeline.append(kind)
+        if self._on_end is not None:
+            self._on_end(kind)
+
+
+class SpyProgress:
+    """Ersatz fuer den Reporter: haelt jeden `step` als "progress:<NAME>" in derselben Zeitleiste fest wie die Datenbank."""
+
+    def __init__(self, timeline: list[str]) -> None:
+        self.timeline = timeline
+
+    def step(self, step: Any) -> None:
+        self.timeline.append(f"progress:{step.name}")
+
+
+def customer_handler(text: str, params: Any) -> list[dict[str, Any]]:
+    """Antworten fuer find_customer: bekannt ist nur die Adresse erika@muster.example; Firma und Domain sind unbekannt."""
+    from datetime import UTC, datetime
+
+    from hoffmann_data import crm
+
+    if text == crm.CUSTOMER_BY_EMAIL_SQL:
+        return [
+            {
+                "id": 1,
+                "company_name": "Muster GmbH",
+                "domain": "muster.example",
+                "industry": "other",
+                "country": "de",
+                "status": "existing",
+            }
+        ]
+    if text in (crm.CUSTOMER_BY_COMPANY_SQL, crm.CUSTOMER_BY_DOMAIN_SQL):
+        return []
+    if text == crm.CONTACTS_SQL:
+        return [
+            {
+                "first_name": "Erika",
+                "last_name": "Muster",
+                "email": "erika@muster.example",
+                "job_title": None,
+                "language": "de",
+            }
+        ]
+    if text == crm.ACTIVITIES_SQL:
+        return [
+            {
+                "type": "inquiry",
+                "occurred_at": datetime(2026, 3, 1, 10, 0, tzinfo=UTC),
+                "subject": "Anfrage",
+                "summary": "Zusammenfassung",
+                "amount_eur": None,
+                "created_by": "seed",
+                "article_number": None,
+            }
+        ]
+    raise AssertionError(f"unerwarteter Befehl: {text[:40]!r}")
+
+
+def make_write_handler(
+    matches: tuple[int | None, int | None, int | None] = (None, None, None),
+    customer_known: bool = True,
+) -> Any:
+    """Antworten fuer create_lead und log_activity. `matches` = (Kunde der Domain, Kunde des Namens, Kunde der Adresse)."""
+
+    def handler(text: str, params: Any) -> list[dict[str, Any]]:
+        from hoffmann_data import db
+
+        if text == db.FIND_LEAD_MATCHES_SQL:
+            return [
+                {
+                    "domain_customer_id": matches[0],
+                    "name_customer_id": matches[1],
+                    "contact_customer_id": matches[2],
+                }
+            ]
+        if text == db.INSERT_CUSTOMER_SQL:
+            return [{"id": 41}]
+        if text in (db.INSERT_CONTACT_SQL, db.INSERT_ACTIVITY_SQL):
+            return []
+        if text == db.FIND_CUSTOMER_ID_SQL:
+            return [{"id": 7}] if customer_known else []
+        if text == db.FIND_CONTACT_ID_SQL:
+            return [{"id": 8}]
+        raise AssertionError(f"unerwarteter Befehl: {text[:40]!r}")
+
+    return handler
+
+
+LEAD_ARGUMENTS: dict[str, Any] = {
+    "company_name": "Neu GmbH",
+    "contact_first_name": "Erika",
+    "contact_last_name": "Muster",
+    "contact_email": "erika@neu-gmbh.example",
+    "language": "de",
+    "country": "de",
+}
+ACTIVITY_ARGUMENTS: dict[str, Any] = {
+    "customer_domain": "muster.example",
+    "type": "note",
+    "subject": "Betreff",
+    "summary": "Zusammenfassung",
+}
+
+
+def tool_call_request(
+    era: str,
+    tool: str,
+    arguments: dict[str, Any],
+    *,
+    progress_token: Any = None,
+    authorization: str | None = None,
+) -> tuple[dict[str, Any], dict[str, str]]:
+    """(Nutzlast, Kopfzeilen) eines tools/call auf dem alten ("alt") oder modernen ("modern") Weg, mit Token der Anmeldung."""
+    if era == "modern":
+        payload, headers = modern_tool_call(tool, arguments, progress_token)
+    else:
+        params: dict[str, Any] = {"name": tool, "arguments": arguments}
+        if progress_token is not None:
+            params["_meta"] = {"progressToken": progress_token}
+        payload = {"jsonrpc": "2.0", "id": 7, "method": "tools/call", "params": params}
+        headers = dict(RPC_HEADERS)
+    if authorization is not None:
+        headers["Authorization"] = f"Bearer {authorization}"
+    return payload, headers
+
+
+def progress_events(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Nur die Fortschrittsmeldungen eines Stroms (notifications/progress), in der Reihenfolge des Stroms."""
+    return [e for e in events if e.get("method") == "notifications/progress"]

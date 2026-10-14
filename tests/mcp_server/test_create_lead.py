@@ -1314,7 +1314,8 @@ def test_the_function_has_no_switch_to_turn_the_duplicate_check_off() -> None:
     from hoffmann_data import crm
 
     parameters = list(inspect.signature(crm.create_lead).parameters)
-    assert parameters == ["database", *PARAMETERS]
+    # `progress` (F10) ist ein Meldekanal fuer Fortschritt, kein Schalter der Dublettenpruefung
+    assert parameters == ["database", *PARAMETERS, "progress"]
 
 
 def test_the_output_schema_has_exactly_the_three_fields(

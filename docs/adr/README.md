@@ -10,3 +10,4 @@ Jede Datei begründet eine wesentliche Entscheidung.
 | [0004](0004-datenservice-liest-ueber-nur-lese-rolle.md) | Datenservice liest über eine Nur-Lese-Rolle |
 | [0005](0005-schreibweg-des-datenservice.md) | Schreibweg des Datenservice |
 | [0006](0006-richtlinien-und-prompt-aus-dateien.md) | Richtlinien und Antwortvorlage des Datenservice aus Dateien |
+| [0007](0007-fortschrittsmeldungen.md) | Fortschrittsmeldungen aus synchronen Werkzeugen, feste Texte, Best-Effort |

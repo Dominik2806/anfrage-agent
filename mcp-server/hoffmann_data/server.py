@@ -16,7 +16,7 @@ Jede App liegt in ihrer eigenen BearerTokenMiddleware; davor wählt die Pfadweic
 from pathlib import Path
 from typing import Annotated, Any
 
-from mcp.server.mcpserver import MCPServer
+from mcp.server.mcpserver import Context, MCPServer
 from mcp.server.mcpserver.exceptions import ResourceError
 from mcp.server.transport_security import TransportSecuritySettings
 from pydantic import WithJsonSchema
@@ -50,6 +50,7 @@ from hoffmann_data.limits import (
     MAX_SUBJECT_LENGTH,
     MAX_SUMMARY_LENGTH,
 )
+from hoffmann_data.progress import FIND_CUSTOMER_TOTAL, WRITE_TOTAL, progress_for
 from hoffmann_data.switch import PathSwitch
 
 STREAMABLE_HTTP_PATH = "/mcp"
@@ -262,7 +263,11 @@ def create_read_server(
         ),
     )
 
-    # Sync-Funktion: Laut SDK-Quelltext (mcp 2.3.0) läuft sie in einem Worker-Thread, die Abfrage blockiert die Schleife dann nicht (nicht per Test belegt).
+    # Sync-Funktionen: Das SDK (mcp 2.3.0) ruft sie in einem Worker-Thread auf, die Abfrage blockiert die Schleife nicht.
+    # Belegt durch tests/mcp_server/test_progress_from_thread.py (keine laufende Schleife im Thread, anyio.from_thread.run
+    # funktioniert) und die Strom-Tests (Meldung kommt, während die Datenbank noch arbeitet). `ctx: Context` ist kein
+    # Eingabeparameter (steht in keinem Schema); der Reporter sendet Fortschritt nur, wenn der Client einen progressToken
+    # schickt (F10, ADR 0007). search_products und get_product melden nicht: je eine Abfrage.
     @server.tool(name="search_products", description=SEARCH_PRODUCTS_DESCRIPTION)
     def search_products(
         query: Annotated[Any, WithJsonSchema(QUERY_SCHEMA)],
@@ -279,8 +284,10 @@ def create_read_server(
     @server.tool(name="find_customer", description=FIND_CUSTOMER_DESCRIPTION)
     def find_customer(
         query: Annotated[Any, WithJsonSchema(CUSTOMER_QUERY_SCHEMA)],
+        ctx: Context,
     ) -> crm.CustomerResult:
-        return crm.find_customer(database, query)
+        reporter = progress_for(ctx, total=FIND_CUSTOMER_TOTAL)
+        return crm.find_customer(database, query, reporter)
 
     @server.resource(
         "policy://tonalitaet",
@@ -356,9 +363,11 @@ def create_write_server(write_database: ConnectionSource | None = None) -> MCPSe
         contact_email: Annotated[Any, WithJsonSchema(LEAD_EMAIL_SCHEMA)],
         language: Annotated[Any, WithJsonSchema(LANGUAGE_SCHEMA)],
         country: Annotated[Any, WithJsonSchema(COUNTRY_SCHEMA)],
+        ctx: Context,
         contact_job_title: Annotated[Any, WithJsonSchema(JOB_TITLE_SCHEMA)] = None,
         industry: Annotated[Any, WithJsonSchema(INDUSTRY_SCHEMA)] = None,
     ) -> crm.LeadResult:
+        reporter = progress_for(ctx, total=WRITE_TOTAL)
         return crm.create_lead(
             write_database,
             company_name,
@@ -369,6 +378,7 @@ def create_write_server(write_database: ConnectionSource | None = None) -> MCPSe
             country,
             contact_job_title,
             industry,
+            reporter,
         )
 
     @server.tool(name="log_activity", description=LOG_ACTIVITY_DESCRIPTION)
@@ -377,10 +387,12 @@ def create_write_server(write_database: ConnectionSource | None = None) -> MCPSe
         type: Annotated[Any, WithJsonSchema(ACTIVITY_TYPE_SCHEMA)],
         subject: Annotated[Any, WithJsonSchema(SUBJECT_SCHEMA)],
         summary: Annotated[Any, WithJsonSchema(SUMMARY_SCHEMA)],
+        ctx: Context,
         contact_email: Annotated[Any, WithJsonSchema(CONTACT_EMAIL_SCHEMA)] = None,
     ) -> crm.ActivityResult:
+        reporter = progress_for(ctx, total=WRITE_TOTAL)
         return crm.log_activity(
-            write_database, customer_domain, type, subject, summary, contact_email
+            write_database, customer_domain, type, subject, summary, contact_email, reporter
         )
 
     return server

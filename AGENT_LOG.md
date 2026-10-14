@@ -16,6 +16,72 @@ und welche Konsequenz daraus folgte. Neueste Einträge stehen oben.
 
 ## Einträge
 
+### 2026-10-14 · F10 · Hook `block-guard-paths` blockierte einen reinen Lesebefehl
+- **Aufgabe:** In `tests/mcp_server/test_progress_token_sources.py` die Namen und Zeilen zweier Tests finden (null, 300 KiB), um sie umzuschreiben.
+- **Verhalten des Agenten:** Ein Bash-Aufruf mit `grep` und `sed -n` auf diese Testdatei. Der Befehl wörtlich:
+  `cd /c/Users/sobek/Desktop/KI_BearbeitungVonKundenanfragen/anfrage-agent && grep -n "null\|300 KiB\|300 \* 1024\|def test_" tests/mcp_server/test_progress_token_sources.py | sed -n 1,60p`.
+  Der Hook `block-guard-paths.ps1` blockierte ihn mit: „Blockiert: Hooks und Einstellungen aendert nur der Mensch. Dieser Befehl wuerde .claude/hooks oder die settings-Dateien veraendern.“
+- **Fehler:** Kein Fehler des Agenten. Der Befehl las nur eine Testdatei und berührte weder `.claude/hooks` noch die Einstellungen. Die Ursache der Blockade ist offen und nicht
+  untersucht; auffällig ist nur, dass der Befehl `sed -n` enthielt. Ob das der Auslöser war, ist nicht geprüft.
+- **Entdeckung:** Meldung des Hooks im Lauf.
+- **Korrektur:** Der Agent hat den Hook nicht umgangen. Er hat den Befehl dem Menschen wörtlich genannt und die Datei mit den Werkzeugen Grep und Read gelesen. Keine Änderung an
+  Hooks (nur der Mensch ändert sie).
+- **Konsequenz:** Möglicher zweiter Fehlalarm der Hooks (der erste: `block-env`, siehe unten); Eintrag im Sammel-Issue zur Prüfung durch den Menschen. Regel in CLAUDE.md gilt: blockiert ein
+  Hook, melden und keinen anderen Weg suchen.
+
+### 2026-10-14 · F10 · `progressToken` des Clients ohne Längengrenze zurückgeschickt
+- **Aufgabe:** Fortschrittsmeldungen des Datenservice einbauen (F10); Eingaben begrenzen gilt als Projektregel (CLAUDE.md, Auftrag 11.3).
+- **Verhalten des Agenten:** Der Reporter sendete jedes Mal, wenn das SDK einen `progressToken` erkannte. Der Token kommt in jede Meldung zurück; ADR 0007
+  nannte die fehlende Längengrenze in der ersten Fassung nur als „offen“.
+- **Fehler:** Ein vom Client geschickter Wert wurde ohne Begrenzung in unsere Antworten gespiegelt (bis zur Anfragegrenze von 256 KiB, bis zu dreimal). Mit
+  einem Client, der nicht liest, hielt das auf dem modernen Weg Worker-Thread und lesende Verbindung bis zum Zeitlimit je Meldung fest.
+- **Entdeckung:** code-reviewer und security-reviewer fanden es unabhängig voneinander (mittel).
+- **Korrektur:** `progress_for` in `progress.py` begrenzt den Token (Zeichenkette bis 64 Zeichen, Ganzzahl bis 2^53 − 1 im Betrag, alles andere still ohne Fortschritt); Tests und
+  Mutationen für beide Grenzen. Die erste Fassung las den Token aus `ctx.request_context.meta`. Der Beleg-Test prüfte nur, dass der Wert „irgendwo in meta“ steht, nicht unter
+  welchem Schlüssel; die Doku sagte „belegt“. Das Nachreview wies darauf hin, dass das SDK den Token aus den rohen `params` zurückschickt und `meta` eine zweite Sicht ist, die abweichen
+  kann (ein Extra-Schlüssel `progress_token`). Die zweite Fassung prüft den rohen Wert mit `progress_token_from_params` und hat Tests für beide Schlüssel; der Beleg-Test prüft
+  jetzt Schlüssel und Wert je Typ. Mutationsprüfung (lokal, Skript nicht versioniert) nach der zweiten Fassung: 34 Mutationen, alle entdeckt, keine überlebt, kein Fehler. M32 (den
+  Token wieder aus `meta` lesen) fangen `test_progress_token_sources.py` (HTTP, beide Wege) und der Unit-Test in `test_progress_token_limits.py`.
+- **Konsequenz:** Ein Wert, den das SDK oder der Client zurückspiegelt, wird beim Entwurf wie jede Eingabe behandelt (Länge und Typ begrenzen), nicht erst nach dem Review. Ein Beleg-Test
+  prüft die Behauptung, die die Doku aufstellt, nicht eine schwächere (hier: Schlüssel und Wert, nicht „der Wert kommt irgendwo vor“).
+
+### 2026-10-14 · F10 · Mutation M26 fand eine Testlücke: `asyncio.CancelledError` im Reporter war ungeprüft
+- **Aufgabe:** Reporter für Fortschrittsmeldungen (`progress.py`) schreiben, der Sendefehler abfängt und sich abschaltet.
+- **Verhalten des Agenten:** Claude Code fing `(Exception, asyncio.CancelledError)` ab, ohne dass ein Test die Abbruchausnahme je auslöste. Die
+  vier Fehlerklassen der Tests waren alle `Exception`-Unterklassen. Der Agent vermutete selbst, die Klausel könne toter Code sein, weil
+  `concurrent.futures.CancelledError` eine `Exception` ist.
+- **Fehler:** Eine Vermutung über das Verhalten von `anyio.from_thread.run` stand im Code (und im Plan), ohne Beleg und ohne Test.
+- **Entdeckung:** Die Mutationsprüfung (M26: nur `except Exception`; lokal ausgeführt, das Skript ist nicht versioniert) lief grün durch, die Mutation überlebte.
+- **Korrektur:** Ein Beleg-Test (`test_progress_cancellation.py`) zeigte, dass im Worker-Thread `asyncio.CancelledError` ankommt (eine `BaseException`);
+  der Zweig ist nötig. Ein Test mit dem echten Reporter (`test_progress_unit.py`) tötet M26; der Kommentar in `progress.py` verweist auf den Beleg.
+- **Konsequenz:** Die Regel „Verhalten des SDKs nicht aus dem Quelltext folgern, sondern mit einem Test belegen“ steht schon in `mcp-server/CLAUDE.md`; sie wurde
+  hier für den Abbruchfall nicht befolgt. Jede Mutation muss einen konkreten Test töten, Lücken werden vor der Doku geschlossen.
+
+### 2026-10-14 · F10 · Testhilfe: Server-Thread auf der Windows-Standardschleife (Proactor) hing beim Beenden
+- **Aufgabe:** Eine Testhilfe schreiben, die den Datenservice mit uvicorn im Thread auf `127.0.0.1` startet (Port-Test, Ausnahme zur Portregel, ADR 0007).
+- **Verhalten des Agenten:** `serve_on_loopback` ließ den Server mit `server.run` laufen (uvicorn nimmt unter Windows die Standardschleife) und setzte
+  nach 10 s `force_exit` als Notausgang. Die Standardschleife unter Windows und ihre Folgen für das Beenden hatte der Agent nicht bedacht.
+- **Fehler:** Unter Windows ist die Standardschleife die `ProactorEventLoop`. Ihr `_call_connection_lost` überspringt bei einem `ConnectionResetError` im
+  `shutdown()` das `sock.close()` und `Server._detach`; `wait_closed()` wartete dann ohne Ende, `lifespan.shutdown` wurde nie gesendet, `force_exit` half nicht.
+  Der Fehler trat nur in einem Teil der Läufe auf (Messreihe des Menschen: 5 von 20).
+- **Entdeckung:** Messreihe des Menschen (Teardown 15,8 s); eine schrittweise erweiterte Diagnose in der Assertion-Meldung (offene Tasks mit Warte-Kette,
+  uvicorn-Zähler, Lifespan-Nachrichten) und das Lesen der Quellen von Python 3.13 und uvicorn belegten die Kette.
+- **Korrektur:** Die Testhilfe läuft auf der `SelectorEventLoop` (`asyncio.Runner(loop_factory=...)`); der Docstring nennt die belegte Ursache; die
+  Assertion blieb unverändert streng und die Diagnose als kompakte Form. Mehrere Läufe in Folge liefen sauber (Angabe des Menschen).
+- **Konsequenz:** Eine Ursache wird belegt, bevor eine Frist oder ein Zeitlimit „hilft“. Erwartung (die CI zeigt es): Der Linux-Runner hat das Problem nicht.
+
+### 2026-10-14 · F10 · Hook `block-env` blockierte einen Befehl ohne Zugriff auf eine `.env`
+- **Aufgabe:** SDK-Quelltexte (mcp, starlette) mit einem Shell-Befehl lesen, um den Wert von `_SSE_PING_INTERVAL` und die Client-API zu klären.
+- **Verhalten des Agenten:** Ein Bash-Aufruf mit `cd …/.venv/Lib/site-packages && grep … ; ls … ; grep … ; cat ../../../../ruff.toml` wurde vom Hook mit „Zugriff auf
+  .env-Dateien ist in diesem Projekt nicht erlaubt“ blockiert. Der Befehl las keine `.env`-Datei.
+- **Fehler:** Kein Fehler des Agenten. Der Hook meldete einen Treffer, den ich nicht erklären kann; die Ursache ist offen (Verdacht: ein Muster, das einen Teil
+  des Pfades oder des Befehls wie einen `.env`-Namen liest; nicht untersucht).
+- **Entdeckung:** Meldung des Hooks im Lauf.
+- **Korrektur:** Der Agent hat den Hook nicht umgangen, den Befehl dem Menschen wörtlich genannt und die Dateien mit dem Read-Werkzeug gelesen. Keine
+  Änderung an Hooks (nur der Mensch ändert sie).
+- **Konsequenz:** Möglicher Fehlalarm des Hooks; Eintrag im Sammel-Issue zur Prüfung durch den Menschen. Regel in CLAUDE.md gilt: blockiert ein Hook, melden und
+  keinen anderen Weg suchen.
+
 ### 2026-10-13 · F09 · Mutationsskript: Endlosschleife durch eine zu allgemein beschriebene Mutation (Auftrag vom KI-Assistenten im Chat, Umsetzung von Claude Code)
 - **Aufgabe:** Das Mutationsskript für die Nachbesserung um Mutationen M42 bis M62 erweitern. Eine davon lautete „Abschlussmarke immer
   mit Nummer 0“.
