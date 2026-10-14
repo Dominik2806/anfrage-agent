@@ -2,7 +2,7 @@
 
 Gilt zusätzlich zur CLAUDE.md im Hauptordner. Verbindlich: `docs/AUFTRAG.md` (Kapitel 5 und 6.4), `docs/adr/0003-token-pruefung-eigene-middleware.md`,
 `docs/adr/0004-datenservice-liest-ueber-nur-lese-rolle.md`, `docs/adr/0005-schreibweg-des-datenservice.md`,
-`docs/adr/0006-richtlinien-und-prompt-aus-dateien.md`.
+`docs/adr/0006-richtlinien-und-prompt-aus-dateien.md`, `docs/adr/0007-fortschrittsmeldungen.md`.
 
 ## Aufbau
 - `hoffmann_data/config.py` – liest und prüft die Umgebung (`load_config`, `Config`, `ConfigError`), auch `MCP_SERVER_DATABASE_URL`
@@ -15,7 +15,9 @@ Gilt zusätzlich zur CLAUDE.md im Hauptordner. Verbindlich: `docs/AUFTRAG.md` (K
   `fetch_all`), die einzige Stelle mit `INSERT INTO`, und die Startprüfungen der Rollen (`verify_read_only_role`,
   `verify_write_role`, `RoleCheckError`)
 - `hoffmann_data/catalog.py` – `search_products`, `get_product`
-- `hoffmann_data/crm.py` – `find_customer`, `log_activity`, `create_lead`
+- `hoffmann_data/crm.py` – `find_customer`, `log_activity`, `create_lead` (je mit optionalem `progress`, Standard `NO_PROGRESS`)
+- `hoffmann_data/progress.py` – Fortschrittsmeldungen (F10, ADR 0007): `Step` (feste Texte), `ProgressReporter`, `NoProgress`/`NO_PROGRESS`,
+  `PROGRESS_TIMEOUT_SECONDS`, `MAX_MESSAGES`, `progress_for` (begrenzt den `progressToken`, `MAX_TOKEN_LENGTH`, `MAX_TOKEN_INT`); kennt keine Datenbank
 - `hoffmann_data/policies.py` – liest die Richtlinien aus `data/richtlinien/` (`POLICY_DIR`, je Abruf, feste Meldung
   `POLICY_UNAVAILABLE`) und prüft sie beim Start (`verify_policies`)
 - `hoffmann_data/draft.py` – die beiden Nachrichten des Prompts als reine Funktion (`build_messages`), ohne SDK und ohne Dateizugriff
@@ -26,7 +28,9 @@ Gilt zusätzlich zur CLAUDE.md im Hauptordner. Verbindlich: `docs/AUFTRAG.md` (K
   (und, wenn konfiguriert, die Schreibrolle) und danach die Richtlinien
 - `../db/roles/data_service_ro.sql` und `../db/roles/data_service_rw.sql` – Skripte der Nur-Lese- und der Schreibrolle (liegen
   außerhalb des Pakets, der Mensch führt sie aus)
-- Tests: `tests/mcp_server/`
+- Tests: `tests/mcp_server/`. Tests der Fortschrittsmeldungen (`test_progress_*.py`): `from_thread`, `eras`, `backpressure`, `cancellation` und
+  `sdk_client` belegen Verhalten des SDKs mit einem eigenen Werkzeug des Tests (ohne Paketcode); `unit`, `tools`, `stream`, `security` und `server`
+  prüfen den Datenservice. Hilfen (`ScriptedDatabase`, `AsgiRunner`, `serve_on_loopback`, `probe_app`) stehen in `mcp_testkit.py`.
 
 ## Regeln
 - Das Zugangstoken wird nie geloggt, gedruckt, in Fehlermeldungen oder Antworten ausgegeben, auch nicht
@@ -60,13 +64,27 @@ Gilt zusätzlich zur CLAUDE.md im Hauptordner. Verbindlich: `docs/AUFTRAG.md` (K
   `DROP`, `ALTER`, `TRUNCATE`, `GRANT`, `COPY`, `CREATE`, `MERGE`, auch nicht als deutsches Wort „Alter“) und keinen String mit
   Präfix `MCP_`; das gilt auch für Vorspann, Prompt-Anweisungen und Fehlermeldungen (`test_package_sql_rules.py`).
 - DEBUG nie mit echten Daten: Bei DEBUG schreibt der Transport die ganze Antwort ins Log (`sse_starlette.sse`, „chunk:“), bei
-  `prompts/get` samt Kundentext, bei `policy://rabatte` samt Prozentwerten. Unser Code loggt keine Werte.
+  `prompts/get` samt Kundentext, bei `policy://rabatte` samt Prozentwerten, bei Fortschrittsmeldungen samt `progressToken`. Unser Code loggt keine Werte.
 - Host-/Origin-Schutz bleibt immer ausdrücklich gesetzt. Hosts außer Loopback nur mit `MCP_SERVER_ALLOWED_HOSTS`.
-- Transport: `stateless_http=True`, `json_response=False` (ADR 0003; F10 braucht Streaming).
+- Transport: `stateless_http=True`, `json_response=False` (ADR 0003; F10 nutzt den Ereignisstrom, ADR 0007).
+- Fortschrittsmeldungen (F10, ADR 0007): Meldungen sind nur die Texte von `Step`, der Reporter nimmt nur einen `Step`, nie einen Text oder Wert.
+  Neue Texte nur in `Step`, ohne Schlüsselwörter der Paketregel und ohne `MCP_`. Die Schreibwerkzeuge melden nie innerhalb der Transaktion (vor dem
+  Öffnen der Verbindung, nach dem Commit, bei der Wiederholung nach dem Rollback); `find_customer` meldet innerhalb der lesenden Verbindung.
+  Best-Effort: Ein Sendefehler bricht nie ab und der Reporter schaltet sich danach ab; im Log nur die Klasse der Ausnahme. Zeitlimit je Meldung
+  `PROGRESS_TIMEOUT_SECONDS`, höchstens `MAX_MESSAGES` Meldungen je Aufruf. `progress.py` importiert keine Datenbank. Keine neue Umgebungsvariable.
+  `asyncio.CancelledError` kommt im Worker-Thread an und wird deshalb gefangen (Beleg `test_progress_cancellation.py`). Der `progressToken` des Clients
+  steht nur in den Meldungen (bewusste Ausnahme von „keine Eingabewerte in Antworten“), nie im Log unseres Codes (ab INFO), nie in stdout oder stderr. Den Reporter baut nur `progress_for(ctx, total)`: Es meldet nur bei einer
+  Zeichenkette bis `MAX_TOKEN_LENGTH` Zeichen (Codepunkte, nicht Bytes; auch leer) oder einer Ganzzahl bis `MAX_TOKEN_INT` im Betrag. Geprüft wird der Wert, den das SDK zurückschickt: `progress_token_from_params` auf
+  `ctx.request_context.params` (nie `ctx.request_context.meta`: ein zusätzlicher Schlüssel `progress_token` neben `progressToken` im `_meta` überschreibt dort den Wert); alles
+  andere ist `NO_PROGRESS`, still, ohne Log-Zeile und ohne Fehlermeldung. Neue Werkzeuge mit Fortschritt benutzen `progress_for`, nie `ProgressReporter` direkt. `anyio` ist
+  direkt importiert und deshalb gepinnt.
 - Kein Zugriffsprotokoll von uvicorn (`access_log=False`), weil es Pfad und Query schreiben würde.
 - Verhalten des SDKs `mcp` nicht aus einer Stelle im Quelltext folgern, sondern mit einem Test belegen.
-- Tests: Die ASGI-App läuft im Speicher (Starlette-`TestClient` mit `base_url="http://127.0.0.1:8000"`), es wird kein Port
-  geöffnet. Tests zu Token, Konfiguration und Schnittstellen brauchen keine Datenbank. Tests mit Datenbank brauchen
+- Tests: Die ASGI-App läuft im Speicher (Starlette-`TestClient` mit `base_url="http://127.0.0.1:8000"` oder direkt als ASGI mit
+  `AsgiRunner`), es wird kein Port geöffnet. **Ausnahme (ADR 0007):** `test_progress_server.py` und `test_progress_sdk_client.py` starten uvicorn
+  im Thread über `serve_on_loopback` (nur `127.0.0.1`, Port 0, Socket vorab gebunden, `SelectorEventLoop`, ereignisbasiert, harte Zeitlimits);
+  ohne Sockets Skip lokal, in GitHub Actions ein Fehler (`serve_or_skip`). Weitere Port-Tests nur mit dieser Hilfe und nur, wenn der Beweis ohne Port
+  nicht reicht. Tests zu Token, Konfiguration und Schnittstellen brauchen keine Datenbank. Tests mit Datenbank brauchen
   `TEST_DATABASE_URL` (nur `localhost:5432`); ohne sie werden sie lokal übersprungen, in GitHub Actions ist das ein Fehler.
   Tests der Schreibwerkzeuge committen Zeilen mit dem Marker `mcp-schreibtest` und räumen vor und nach jedem Test auf; im
   Testschema ist Autovacuum abgeschaltet (Sperrzyklus mit dem `ro`-Skript, AGENT_LOG, 2026-10-12).
@@ -93,10 +111,14 @@ Gilt zusätzlich zur CLAUDE.md im Hauptordner. Verbindlich: `docs/AUFTRAG.md` (K
   bei einem unbekannten Prompt den Namen (Meldung, ERROR-Log mit Stacktrace); beides als `xfail(strict=True)` in
   `test_mcp_policy_no_leak.py`. Auf `/mcp-write` (keine Resources, keine Prompts) läuft ein solcher Aufruf durch dieselbe
   SDK-Behandlung; die Tests dort prüfen nur den Fehler, nicht ein Echo des Werts.
+  Dritte bekannte Klasse (schon vor F10, nur authentifizierte Clients, keine Verstärkung durch Wiederholung): Client-Text, den das SDK in Antworten oder Logs übernimmt.
+  Selbst gelesen: `UNSUPPORTED_PROTOCOL_VERSION` spiegelt den Versionswert des Clients in `data` (`mcp/shared/inbound.py`, `unsupported_protocol_version_rejection`).
+  Laut Review (F10), nicht selbst geprüft: `Parse error` und `Validation error` mit Pydantic-Text auf dem alten Weg, und ein INFO-Log `Tool %r failed` mit dem Werkzeugnamen des
+  Clients. Nicht durch einen Test festgehalten (Eintrag im Sammel-Issue).
   Das Log nennt bei Datenbankfehlern nur Klasse und SQLSTATE.
 - Eingaben prüft `limits.py`, bevor die Datenbank berührt wird. Textparameter der Werkzeuge sind
   `Annotated[Any, WithJsonSchema(...)]` mit eigener Prüfung, weil das SDK bei Pydantic-Fehlern den Eingabewert zurückgibt.
 - Die Regeltests (`test_package_sql_rules.py`, `test_mcp_no_leak.py`, `test_role_check.py`, `test_limits.py`) ändert nur der Mensch.
   Claude Code ändert sie nur nach ausdrücklicher Freigabe.
 - Sonderzeichen in Tests nur als achtstellige `\U`-Escapes, nie wörtlich (ruff PLE2502, PLE2515).
-- Neue Abhängigkeiten nur nach Rückfrage. `mcp`, `pydantic` und `psycopg` sind fest gepinnt (`requirements.txt`).
+- Neue Abhängigkeiten nur nach Rückfrage. `mcp`, `pydantic`, `psycopg` und `anyio` (direkt importiert, F10) sind fest gepinnt (`requirements.txt`).

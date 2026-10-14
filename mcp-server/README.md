@@ -334,9 +334,50 @@ Mit leerem `kunde`: Es gilt als nicht angegeben, Nachricht 2 enthält „Kunde: 
             "arguments": {"sprache": "de", "anfrage": "Bitte um ein Angebot für Dichtungen.", "kunde": ""}}}
 ```
 
-Es gibt keine Werkzeuge zum Versenden oder Löschen. Fortschrittsmeldungen bei länger laufenden Aufrufen
-(Auftrag 6.4) sind nicht Teil von F07, sie kommen mit F10. Der Transport (zustandslos, Ereignisstrom) lässt
-sie zu (ADR 0003).
+Es gibt keine Werkzeuge zum Versenden oder Löschen.
+
+### Fortschrittsmeldungen (F10, ADR 0007)
+`find_customer`, `create_lead` und `log_activity` melden Zwischenstände (`notifications/progress`), wenn der Client in der Anfrage
+`_meta.progressToken` mitschickt; ohne Token wird nichts gesendet und es entsteht kein Fehler. Der Token ist begrenzt: eine Zeichenkette bis 64 Zeichen
+(Codepunkte, nicht Bytes; auch leer) oder eine Ganzzahl mit Betrag bis 2^53 − 1; alles andere läuft still ohne Fortschritt (keine Log-Zeile, keine Fehlermeldung; der Client sieht am Ausbleiben der Meldungen, dass der
+Token nicht genutzt wurde), denn das SDK schickt den Token in jede Meldung zurück. Geprüft wird der Wert, den das SDK zurückschickt (die rohen
+`params["_meta"]["progressToken"]`, `progress_for` in `hoffmann_data/progress.py`); `true` und 5.0 sind kein Token (das Werkzeug läuft), Zahlen mit
+Nachkommastellen (1.5), Listen, Objekte und `null` lehnt das SDK vor dem Werkzeug ab (`INVALID_PARAMS`; alter Weg: HTTP 200 mit JSON-RPC-Fehler, moderner Weg: HTTP 400;
+Assertions in `tests/mcp_server/test_progress_token_access.py`); eine Ganzzahl über 2^53 − 1 läuft normal ohne Meldung. Ein einzelnes unpaariges Ersatzzeichen (U+D800) lehnt der
+alte Weg beim Parsen ab (HTTP 400, „Parse error“), der moderne nimmt es an; beides ist Verhalten des SDKs und ohne Leck. Eine Anfrage mit mehr als 256 KiB bekommt auf beiden Wegen HTTP 413.
+Gemessene Obergrenze je Ereignis (roh, mit Rahmen): alter Weg 551 Byte (64 × U+0001), moderner Weg 935 Byte (64 Nicht-BMP-Zeichen); im Test auf 1024 Byte festgenagelt. Ein
+ungültiger Token ändert Ergebnis und Rahmen der Antwort nicht (identisch mit „ohne Token“). Ein zusätzlicher Schlüssel `progress_token` neben `progressToken` im `_meta`
+überschreibt den Wert in `ctx.request_context.meta`; deshalb wird die Quelle der rohen Params geprüft. `search_products` und `get_product` melden
+nicht. Die Meldungen sind feste Texte ohne Werte (`Step` in `hoffmann_data/progress.py`), `progress` steigt je Meldung um 1, `total` ist die
+Zahl der Schritte des Normalwegs:
+
+| Werkzeug | Meldungen | `total` |
+|---|---|---|
+| `find_customer` | „Kunde gesucht“, „Ansprechpersonen geladen“, „Verlauf geladen“ (nach jeder Abfrage, ein unbekannter Kunde endet nach der ersten) | 3 |
+| `create_lead`, `log_activity` | „Eingabe geprüft“ (vor der Transaktion), „Transaktion abgeschlossen“ (nach dem Commit) | 2 |
+| `create_lead` bei Wiederholung nach verlorenem Rennen | zusätzlich „Wiederholung nach Konflikt“ (nach dem Rollback, vor der zweiten Verbindung); `progress` kann dann 3 sein bei `total` 2 | 2 |
+
+Die Schreibwerkzeuge melden nie innerhalb der Transaktion. Höchstens 6 Meldungen je Aufruf. Ein Fehler oder Zeitlimit beim Senden
+(`PROGRESS_TIMEOUT_SECONDS`, 1,0 s je Meldung) bricht den Aufruf nie ab; der Reporter schaltet sich danach für den Rest des Aufrufs ab, das Log
+nennt nur die Klasse der Ausnahme. Geht der Client mitten im Aufruf, läuft das Werkzeug zu Ende; ein Wiederholungsaufruf trifft den Dublettenschutz
+von `create_lead`. Der Zugangsschutz gilt unverändert vor dem Strom (ohne gültiges Token 401, auch bei jedem Wert des Headers `MCP-Protocol-Version`).
+Der `progressToken` kommt laut Protokoll in jeder Meldung zurück (bewusste Ausnahme von „keine Eingabewerte in Antworten“), nie im Log unseres Codes (ab INFO), nie in stdout oder stderr. Bei DEBUG schreibt der Transport
+(`sse_starlette`) die ganze Meldung ins Log, samt Token: DEBUG nie mit echten Daten.
+
+Beide Wege des SDKs liefern Fortschritt. Der alte Weg (kein Header `MCP-Protocol-Version`) antwortet mit Token als Ereignisstrom. Der moderne Weg
+(`MCP-Protocol-Version: 2026-07-28`) antwortet mit JSON, wenn der Aufruf ohne Ereignis endet, und schaltet ab der ersten Meldung auf den Strom um.
+Beispiel (Rumpf, mit dem Lese-Token an `POST /mcp`, alter Weg):
+
+```
+{"jsonrpc": "2.0", "id": 1, "method": "tools/call",
+ "params": {"name": "find_customer", "arguments": {"query": "firma.example"}, "_meta": {"progressToken": "abc"}}}
+```
+
+Heute läuft kein Werkzeug lange (Statement-Limit 5 s, Verbindungs-Limit 5 s); die Meldungen sind eine Schnittstelle, kein Ersatz für Wartezeit.
+Das Zeitlimit je Meldung gilt je Aufruf; die Zahl gleichzeitiger Aufrufe (Thread-Limiter und Pool des SDKs, Verbindungsgrenze der Datenbank) ist ein
+Betriebspunkt für F30.
+Beim Herunterfahren hält ein offener Strom uvicorn an, solange `timeout_graceful_shutdown` nicht gesetzt ist (aus dem Quelltext, Entscheidung zum
+Betrieb bei F30).
 
 ## Hosting (F30)
 Der Server spricht selbst kein TLS. Beim Hosting muss der Hoster TLS davor setzen, sonst läuft das Token
@@ -344,7 +385,8 @@ unverschlüsselt. Es gibt ein Lese-Token für alle lesenden Clients und ein Schr
 Rotation. Der Server braucht außerdem den Ordner `data/richtlinien/` (Resources und Prompt): Der Build-Kontext ist die
 Projektwurzel, nicht der Ordner `mcp-server`, und die Dateien sind mitzuliefern; sonst endet der Start (Startprüfung der
 Richtlinien). Bekannte Grenzen stehen in `docs/adr/0003-token-pruefung-eigene-middleware.md`,
-`docs/adr/0005-schreibweg-des-datenservice.md` und `docs/adr/0006-richtlinien-und-prompt-aus-dateien.md`.
+`docs/adr/0005-schreibweg-des-datenservice.md`, `docs/adr/0006-richtlinien-und-prompt-aus-dateien.md` und
+`docs/adr/0007-fortschrittsmeldungen.md` (Herunterfahren mit offenem Strom).
 
 ## Hinweis zu PowerShell 5.1
 Der Server antwortet in UTF-8. Die 401-Antwort nennt das ausdrücklich (`charset=utf-8`), die Antwort als
@@ -359,7 +401,9 @@ Aus dem Hauptordner:
 python -m pytest tests/mcp_server
 ```
 
-Die App läuft im Speicher, es wird kein Port geöffnet. Tests zu Token, Konfiguration und Schnittstellen brauchen keine
+Die App läuft im Speicher, es wird kein Port geöffnet. Ausnahme (ADR 0007): `test_progress_server.py` und `test_progress_sdk_client.py` starten
+uvicorn im Thread auf `127.0.0.1` (Port 0); erlaubt die Umgebung keinen Socket, werden sie lokal übersprungen, in GitHub Actions ist das ein Fehler.
+Tests zu Token, Konfiguration und Schnittstellen brauchen keine
 Datenbank. Die beiden Symlink-Tests in `test_policies_files.py` (`test_read_policy_refuses_a_symlink_out_of_the_folder`,
 `test_read_policy_accepts_a_symlink_inside_the_folder`) legen einen Symlink an; unter Windows braucht das den Entwicklermodus (oder
 das Recht zum Anlegen von Symlinks), sonst werden sie übersprungen. Ein Lauf ohne diese Tests belegt die Symlink-Regel nicht. Die übrigen brauchen `TEST_DATABASE_URL` (nur `localhost`, Port 5432, nie die echte Datenbank): Sie legen ein

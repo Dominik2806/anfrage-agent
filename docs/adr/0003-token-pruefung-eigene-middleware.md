@@ -61,4 +61,7 @@ F10 meldet bei länger laufenden Aufrufen den Fortschritt (Auftrag 6.4) und brau
   Nachtrag (F08): Entschieden in ADR 0005. Es gibt ein Lese-Token (`/mcp`) und ein Schreib-Token (`/mcp-write`), je in einer
   eigenen Middleware nach dieser ADR. „Nur nach Freigabe“ gilt als Übergang durch die Trennung der Geheimnisse: Das Schreib-Token
   hat nur der Freigabeweg. Der Satz „Es gibt ein einziges, festes Token“ oben beschreibt den Stand von F06.
+- Nachtrag (F10): `json_response=False` wird jetzt genutzt. Fortschrittsmeldungen laufen als Ereignisstrom über beide Wege des SDKs; die Wahl
+  oben hat F10 nicht blockiert und ist durch Tests bestätigt. Entscheidung und Befunde (gemeinsamer Token-Schutz für den Strom, Gegendruck auf dem
+  modernen Weg, Herunterfahren mit offenem Strom) stehen in ADR 0007. Der offene Punkt zum langen GET-Strom bleibt bei F13: F10 öffnet keinen GET-Strom.
 - Spätere Umstellung auf OAuth bleibt möglich, indem die Middleware durch `AuthSettings` ersetzt wird.
