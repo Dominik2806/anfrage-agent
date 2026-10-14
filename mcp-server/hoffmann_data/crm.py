@@ -56,6 +56,7 @@ from hoffmann_data.limits import (
     check_summary,
     email_domain,
 )
+from hoffmann_data.progress import NO_PROGRESS, Progress, Step
 
 AMBIGUOUS_MESSAGE = "Mehrdeutiger Treffer."
 MAX_CONTACTS = 20
@@ -198,15 +199,20 @@ def _format_time(value: datetime) -> str:
     return value.astimezone(UTC).isoformat()
 
 
-def find_customer(database: ConnectionSource | None, query: Any) -> CustomerResult:
+def find_customer(
+    database: ConnectionSource | None, query: Any, progress: Progress = NO_PROGRESS
+) -> CustomerResult:
     """Kunde über Firma, E-Mail-Adresse oder Domain, mit Ansprechpersonen und Historie.
 
     Ungültige Eingabe: ToolError mit fester Meldung, die Datenbank wird nicht berührt. Unbekannter Kunde:
     {"customer": None, "matched_by": None}, kein Fehler. Auch ein inaktiver Kunde wird geliefert.
+    Fortschritt (F10): nach jeder der drei Stufen (Kunde, Ansprechpersonen, Verlauf) ein Schritt, innerhalb der lesenden
+    Verbindung; ein unbekannter Kunde endet nach dem ersten Schritt.
     """
     text = check_customer_query(query)
     with read_connection(database) as connection:
         found = _lookup(connection, text)
+        progress.step(Step.CUSTOMER_LOOKED_UP)
         if found is None:
             return {"customer": None, "matched_by": None}
         row, matched_by = found
@@ -219,9 +225,11 @@ def find_customer(database: ConnectionSource | None, query: Any) -> CustomerResu
                 "n": MAX_CONTACTS,
             },
         )
+        progress.step(Step.CONTACTS_LOADED)
         activity_rows = fetch_all(
             connection, ACTIVITIES_SQL, {"customer_id": row["id"], "n": MAX_ACTIVITIES}
         )
+        progress.step(Step.HISTORY_LOADED)
     # Feld für Feld: Es gehen nie mehr Schlüssel heraus als dokumentiert (keine interne id)
     contacts: list[ContactInfo] = [
         {
@@ -270,18 +278,22 @@ def log_activity(
     subject: Any,
     summary: Any,
     contact_email: Any = None,
+    progress: Progress = NO_PROGRESS,
 ) -> ActivityResult:
     """Legt eine Aktivität zu einem bekannten Kunden an (F08). Keine interne id im Ergebnis.
 
     Reihenfolge: Eingaben in Parameterreihenfolge prüfen (None bei contact_email heißt "kein Kontakt", ein leerer
     Text ist angegeben und ungültig), dann Kunde über die Domain, dann Kontakt über Adresse und Kunde, dann INSERT.
     Alles in einer Transaktion; Fehler der Datenbank bildet write_connection ab.
+    Fortschritt (F10): "Eingabe geprüft" nach der Prüfung und vor dem Öffnen der Transaktion, "Transaktion abgeschlossen"
+    nach dem Commit; nie innerhalb der Transaktion, bei einem Fehler keine zweite Meldung.
     """
     domain = check_domain(customer_domain)
     kind = check_activity_type(activity_type)
     clean_subject = check_subject(subject)
     clean_summary = check_summary(summary)
     email = None if contact_email is None else check_email(contact_email)
+    progress.step(Step.INPUT_CHECKED)
     with write_connection(database) as connection:
         customer_id = find_customer_id(connection, domain)
         if customer_id is None:
@@ -292,6 +304,7 @@ def log_activity(
             if contact_id is None:
                 raise ToolError(CONTACT_NOT_FOUND)
         insert_activity(connection, customer_id, contact_id, kind, clean_subject, clean_summary)
+    progress.step(Step.TRANSACTION_DONE)
     return {"customer_domain": domain, "type": kind, "logged": True}
 
 
@@ -311,6 +324,7 @@ def create_lead(
     country: Any,
     contact_job_title: Any = None,
     industry: Any = None,
+    progress: Progress = NO_PROGRESS,
 ) -> LeadResult:
     """Legt einen Lead mit Kontakt an, wenn es keinen Treffer gibt; ein bestehender Kunde bleibt unverändert (F08).
 
@@ -322,6 +336,9 @@ def create_lead(
     Verliert der Aufruf ein Rennen (UniqueViolation, hier DUPLICATE_ERROR), läuft der ganze Ablauf genau einmal in einer
     neuen Transaktion erneut; scheitert auch das, bleibt DUPLICATE_ERROR. Andere Fehler werden nicht wiederholt.
     Die Ergebnisse nennen keine interne id. Es gibt keinen Schalter für die Dublettenerkennung.
+    Fortschritt (F10): "Eingabe geprüft" nach der Prüfung und vor dem Öffnen der Transaktion, "Wiederholung nach Konflikt"
+    nach dem Rollback und vor der zweiten Transaktion, "Transaktion abgeschlossen" nach dem Commit; nie innerhalb einer
+    Transaktion, nach einem Fehler keine Abschlussmeldung.
     """
     name = check_company_name(company_name)
     first_name = check_first_name(contact_first_name)
@@ -332,6 +349,7 @@ def create_lead(
     job_title = check_job_title(contact_job_title)
     customer_industry = check_industry(industry)
     domain = email_domain(email)
+    progress.step(Step.INPUT_CHECKED)
 
     def attempt() -> LeadResult:
         with write_connection(database) as connection:
@@ -372,9 +390,15 @@ def create_lead(
             return {"customer_domain": domain, "customer_created": False, "contact_created": True}
 
     try:
-        return attempt()
+        result = attempt()
     except ToolError as error:
         if str(error) != DUPLICATE_ERROR:
             raise
+    else:
+        progress.step(Step.TRANSACTION_DONE)
+        return result
     # Außerhalb des except-Blocks: kein verketteter Kontext. Eine zweite Niederlage gibt DUPLICATE_ERROR weiter.
-    return attempt()
+    progress.step(Step.RETRY_AFTER_CONFLICT)
+    result = attempt()
+    progress.step(Step.TRANSACTION_DONE)
+    return result
